@@ -37,6 +37,7 @@ export default function LoginPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const redirectUrl = searchParams.get("redirect") || "/dashboard";
+  const isLoggedOut = searchParams.get("logout") === "success";
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -79,8 +80,8 @@ export default function LoginPage() {
       setEmail("alumni@careertransformer.in");
       setPassword("StudentPassword123!");
     } else if (role === "admin") {
-      setEmail("admin@careertransformer.in");
-      setPassword("AdminPassword123!");
+      setEmail("pawasesahil2004@gmail.com");
+      setPassword("Ram@123");
     }
   };
 
@@ -236,7 +237,7 @@ export default function LoginPage() {
                         type="button"
                         onClick={() => handleDemoFill("admin")}
                         className={`px-3 py-2 rounded-xl border transition-all duration-200 cursor-pointer text-center font-medium flex items-center justify-center gap-1.5 ${
-                          activeRole === "admin" && email === "admin@careertransformer.in"
+                          activeRole === "admin" && (email === "pawasesahil2004@gmail.com" || email === "admin@careertransformer.in")
                             ? "bg-[#0C1A2B] border-amber-400 text-amber-400 shadow-md shadow-amber-400/10 font-bold"
                             : "bg-[#081827] border-[#162942] text-[#94A3B8] hover:border-amber-500/40 hover:text-white"
                         }`}
@@ -246,6 +247,17 @@ export default function LoginPage() {
                       </button>
                     </div>
                   </div>
+
+                  {isLoggedOut && !error && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="p-3.5 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex items-center gap-2.5 text-xs sm:text-sm text-emerald-400 [transform:translateZ(10px)]"
+                    >
+                      <CheckCircle2 className="w-4 h-4 flex-shrink-0 text-emerald-400" />
+                      <span>You have been safely signed out of your account.</span>
+                    </motion.div>
+                  )}
 
                   {error && (
                     <motion.div

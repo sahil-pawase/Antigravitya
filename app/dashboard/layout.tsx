@@ -10,11 +10,11 @@ import {
   FileText,
   Award,
   User,
-  LogOut,
   Sparkles,
   ExternalLink,
   MessageSquare,
 } from "lucide-react";
+import { LogoutButton } from "@/components/auth/LogoutButton";
 
 export default async function DashboardLayout({
   children,
@@ -91,15 +91,7 @@ export default async function DashboardLayout({
             </div>
           </div>
 
-          <form action="/api/auth/logout" method="POST">
-            <button
-              type="submit"
-              className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/20 transition-colors cursor-pointer"
-            >
-              <LogOut className="w-3.5 h-3.5" />
-              <span>Log Out</span>
-            </button>
-          </form>
+          <LogoutButton label="Log Out" />
         </div>
       </aside>
 

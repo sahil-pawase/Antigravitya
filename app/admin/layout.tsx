@@ -14,9 +14,9 @@ import {
   Award,
   Star,
   Settings,
-  LogOut,
   GraduationCap,
 } from "lucide-react";
+import { LogoutButton } from "@/components/auth/LogoutButton";
 
 export default async function AdminLayout({
   children,
@@ -94,15 +94,7 @@ export default async function AdminLayout({
             </div>
           </div>
 
-          <form action="/api/auth/logout" method="POST">
-            <button
-              type="submit"
-              className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/20 transition-colors cursor-pointer"
-            >
-              <LogOut className="w-3.5 h-3.5" />
-              <span>Log Out Admin Session</span>
-            </button>
-          </form>
+          <LogoutButton label="Log Out Admin Session" />
         </div>
       </aside>
 
