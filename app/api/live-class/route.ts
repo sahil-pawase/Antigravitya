@@ -79,6 +79,7 @@ declare global {
 }
 
 const DEFAULT_ENROLLED_STUDENTS: EnrolledStudent[] = [
+  { id: "stu-sahil", name: "Sahil Bhimashankar Pawase", email: "pawasesahil2@gmail.com", cohort: "Cohort 14 (Data Analytics)", status: "ONLINE_IN_CALL", avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Sahil" },
   { id: "stu-1", name: "Neha Gupta", email: "neha.gupta@careertransformer.in", cohort: "Cohort 14 (Data Analytics)", status: "ONLINE_IN_CALL", avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Neha" },
   { id: "stu-2", name: "Rohan Verma", email: "rohan.verma@careertransformer.in", cohort: "Cohort 14 (Data Analytics)", status: "ONLINE_IN_CALL", avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Rohan" },
   { id: "stu-3", name: "Priya Sharma", email: "priya.s@careertransformer.in", cohort: "Cohort 14 (Data Analytics)", status: "ONLINE_IN_CALL", avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Priya" },
@@ -144,7 +145,7 @@ function getSafeLiveClassState(): LiveClassState {
     global.__liveClassState.chatMessages = [];
   }
 
-  // De-duplicate participants and filter out stale sessions older than 20 seconds
+  // De-duplicate participants and filter out stale sessions older than 90 seconds
   const now = Date.now();
   const seenIds = new Set<string>();
   const seenEmails = new Set<string>();
@@ -152,8 +153,9 @@ function getSafeLiveClassState(): LiveClassState {
 
   for (const p of global.__liveClassState.participants) {
     if (!p || !p.id) continue;
-    // Discard stale unpinned guest sessions
-    if (now - p.lastPing > 25000) continue;
+    // Don't purge if marked attendance or active within 90s
+    const isMarked = global.__liveClassState.activeAttendanceCheck?.markedStudents?.[p.id];
+    if (!isMarked && now - p.lastPing > 90000) continue;
     if (seenIds.has(p.id)) continue;
     if (p.email && seenEmails.has(p.email)) continue;
 
@@ -171,25 +173,36 @@ export async function GET(req: NextRequest) {
     const session = await getSession();
     const state = getSafeLiveClassState();
 
-    // Refresh enrolled students active status dynamically based on current real participants
+    // Refresh enrolled students active status dynamically based on current real participants & attendance
     const activeEmails = new Set(state.participants.map((p) => p.email?.toLowerCase()).filter(Boolean));
     const activeNames = new Set(state.participants.map((p) => p.name.toLowerCase()));
     const activeIds = new Set(state.participants.map((p) => p.id));
     const markedStudentsMap = state.activeAttendanceCheck?.markedStudents || {};
 
     state.enrolledStudents = state.enrolledStudents.map((s) => {
-      const isOnline = activeIds.has(s.id) ||
-        (s.email && activeEmails.has(s.email.toLowerCase())) ||
-        (s.name && activeNames.has(s.name.toLowerCase()));
-
+      // Robust matching: by ID, email, exact name, or partial name
       const attendanceRecord = markedStudentsMap[s.id] ||
-        Object.values(markedStudentsMap).find((m: any) => (m.studentId === s.id || m.studentName?.toLowerCase() === s.name.toLowerCase()));
+        Object.values(markedStudentsMap).find((m: any) => (
+          m.studentId === s.id ||
+          (m.email && s.email && m.email.toLowerCase() === s.email.toLowerCase()) ||
+          m.studentName?.toLowerCase() === s.name.toLowerCase() ||
+          s.name.toLowerCase().includes(m.studentName?.toLowerCase() || "___") ||
+          (m.studentName && m.studentName.toLowerCase().includes(s.name.toLowerCase()))
+        ));
+
+      const isMarked = !!attendanceRecord;
+
+      const isOnline = isMarked ||
+        activeIds.has(s.id) ||
+        (s.email && activeEmails.has(s.email.toLowerCase())) ||
+        (s.name && activeNames.has(s.name.toLowerCase())) ||
+        Array.from(activeNames).some((an) => an.includes(s.name.toLowerCase()) || s.name.toLowerCase().includes(an));
 
       return {
         ...s,
         status: isOnline ? "ONLINE_IN_CALL" : "ABSENT_NOT_JOINED",
-        isAttendanceMarked: !!attendanceRecord,
-        attendanceMarkedAt: attendanceRecord?.markedAt || null,
+        isAttendanceMarked: isMarked,
+        attendanceMarkedAt: attendanceRecord?.markedAt || (isMarked ? "Marked Present" : null),
       };
     });
 

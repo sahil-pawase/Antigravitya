@@ -185,18 +185,37 @@ export default function AdminLiveStudioPage() {
   };
 
   // Student Attendance Filtering & Verification Tracking
-  const participants: any[] = (liveState?.participants || []).filter((p: any) => p && p.role === "STUDENT");
   const enrolledStudents: any[] = liveState?.enrolledStudents || [];
   const markedMap: Record<string, any> = liveState?.activeAttendanceCheck?.markedStudents || {};
   const verifiedList = Object.values(markedMap);
   const verifiedCount = verifiedList.length;
 
-  const filteredStudents = (studentFilter === "ALL" ? enrolledStudents : participants).filter((student: any) => {
+  const onlineCount = enrolledStudents.filter((s: any) =>
+    s.status === "ONLINE_IN_CALL" ||
+    s.isAttendanceMarked ||
+    !!markedMap[s.id] ||
+    Object.values(markedMap).some((m: any) => m.studentId === s.id || m.studentName?.toLowerCase() === s.name.toLowerCase() || s.name.toLowerCase().includes(m.studentName?.toLowerCase() || "___"))
+  ).length;
+
+  const totalCount = enrolledStudents.length;
+  const absentCount = Math.max(0, totalCount - onlineCount);
+  const attendancePct = totalCount > 0 ? Math.round((onlineCount / totalCount) * 100) : 0;
+  const handsRaisedCount = (liveState?.participants || []).filter((p: any) => p && p.isHandRaised).length;
+
+  const filteredStudents = enrolledStudents.filter((student: any) => {
+    const isMarked = student.isAttendanceMarked ||
+      !!markedMap[student.id] ||
+      Object.values(markedMap).some((m: any) =>
+        m.studentId === student.id ||
+        m.studentName?.toLowerCase() === student.name.toLowerCase() ||
+        (m.studentName && student.name.toLowerCase().includes(m.studentName.toLowerCase()))
+      );
+    const isOnline = student.status === "ONLINE_IN_CALL" || isMarked;
+
+    if (studentFilter === "ONLINE" && !isOnline) return false;
+    if (studentFilter === "VERIFIED" && !isMarked) return false;
+    if (studentFilter === "ABSENT" && isOnline) return false;
     if (studentFilter === "HAND_RAISED" && !student.isHandRaised) return false;
-    if (studentFilter === "VERIFIED") {
-      const isMarked = student.isAttendanceMarked || !!markedMap[student.id] || Object.values(markedMap).some((m: any) => m.studentId === student.id || m.studentName?.toLowerCase() === student.name.toLowerCase());
-      if (!isMarked) return false;
-    }
 
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
@@ -208,12 +227,6 @@ export default function AdminLiveStudioPage() {
     }
     return true;
   });
-
-  const onlineCount = participants.length;
-  const totalCount = enrolledStudents.length;
-  const absentCount = Math.max(0, totalCount - onlineCount);
-  const attendancePct = totalCount > 0 ? Math.round((onlineCount / totalCount) * 100) : 0;
-  const handsRaisedCount = participants.filter((p: any) => p && p.isHandRaised).length;
 
   const handleTriggerAttendance = () => {
     handleAction("TRIGGER_ATTENDANCE", {
@@ -487,13 +500,28 @@ export default function AdminLiveStudioPage() {
             <tbody className="divide-y divide-[#162942] bg-[#081827]">
               {filteredStudents.length > 0 ? (
                 filteredStudents.map((student: any) => {
-                  const isOnline = studentFilter === "ALL" ? student.status === "ONLINE_IN_CALL" : true;
+                  const isMarked = student.isAttendanceMarked ||
+                    !!markedMap[student.id] ||
+                    Object.values(markedMap).some((m: any) =>
+                      m.studentId === student.id ||
+                      m.studentName?.toLowerCase() === student.name.toLowerCase() ||
+                      student.name.toLowerCase().includes(m.studentName?.toLowerCase() || "___") ||
+                      (m.studentName && m.studentName.toLowerCase().includes(student.name.toLowerCase()))
+                    );
+
+                  const markedRecord: any = markedMap[student.id] ||
+                    Object.values(markedMap).find((m: any) =>
+                      m.studentId === student.id ||
+                      m.studentName?.toLowerCase() === student.name.toLowerCase() ||
+                      student.name.toLowerCase().includes(m.studentName?.toLowerCase() || "___") ||
+                      (m.studentName && m.studentName.toLowerCase().includes(student.name.toLowerCase()))
+                    );
+
+                  const isOnline = student.status === "ONLINE_IN_CALL" || isMarked || studentFilter === "ONLINE" || studentFilter === "VERIFIED";
                   const isCam = !!student.isCameraOn;
                   const isMic = !!student.isMicOn;
                   const isHand = !!student.isHandRaised;
-                  const joinedTime = student.joinedAt || "Just now";
-                  const isMarked = student.isAttendanceMarked || !!markedMap[student.id] || Object.values(markedMap).some((m: any) => m.studentId === student.id || m.studentName?.toLowerCase() === student.name.toLowerCase());
-                  const markedRecord: any = markedMap[student.id] || Object.values(markedMap).find((m: any) => m.studentId === student.id || m.studentName?.toLowerCase() === student.name.toLowerCase());
+                  const joinedTime = student.joinedAt || markedRecord?.markedAt || "Joined";
                   const markedTime = student.attendanceMarkedAt || markedRecord?.markedAt || "Verified";
 
                   return (
