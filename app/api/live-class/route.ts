@@ -189,35 +189,73 @@ function getSafeLiveClassState(): LiveClassState {
   return global.__liveClassState;
 }
 
+function isSameStudent(s: { id?: string; email?: string | null; name?: string }, target: { id?: string; studentId?: string; email?: string | null; name?: string; studentName?: string }) {
+  if (!s || !target) return false;
+  const tId = target.id || target.studentId;
+  if (s.id && tId && s.id === tId) return true;
+
+  const tEmail = target.email;
+  if (s.email && tEmail && s.email.toLowerCase() === tEmail.toLowerCase()) return true;
+
+  const tName = target.name || target.studentName;
+  if (s.name && tName) {
+    const n1 = s.name.toLowerCase().trim();
+    const n2 = tName.toLowerCase().trim();
+    if (n1 === n2) return true;
+    const parts1 = n1.split(/\s+/);
+    const parts2 = n2.split(/\s+/);
+    if (parts1.length > 0 && parts2.length > 0) {
+      if (parts1[0] === parts2[0] && parts1[parts1.length - 1] === parts2[parts2.length - 1]) return true;
+      if (parts1[0] === parts2[0] && parts1[0].length >= 3) return true;
+    }
+  }
+  return false;
+}
+
 export async function GET(req: NextRequest) {
   try {
     const session = await getSession();
     const state = getSafeLiveClassState();
 
-    // Refresh enrolled students active status dynamically based on current real participants & attendance
-    const activeEmails = new Set(state.participants.map((p) => p.email?.toLowerCase()).filter(Boolean));
-    const activeNames = new Set(state.participants.map((p) => p.name.toLowerCase()));
-    const activeIds = new Set(state.participants.map((p) => p.id));
-    const markedStudentsMap = state.activeAttendanceCheck?.markedStudents || {};
+    const markedStudentsList = Object.values(state.activeAttendanceCheck?.markedStudents || {});
 
+    // 1. Ensure all live participants and marked students are represented in enrolledStudents
+    for (const p of state.participants) {
+      if (!p || p.role === "ADMIN" || p.role === "INSTRUCTOR") continue;
+      const exists = state.enrolledStudents.some((s) => isSameStudent(s, p));
+      if (!exists) {
+        state.enrolledStudents.unshift({
+          id: p.id,
+          name: p.name,
+          email: p.email || `${p.name.toLowerCase().replace(/\s+/g, ".")}@careertransformer.in`,
+          cohort: "Cohort 14 (Data Analytics)",
+          status: "ONLINE_IN_CALL",
+          avatar: p.avatar,
+        });
+      }
+    }
+
+    for (const m of markedStudentsList) {
+      if (!m) continue;
+      const exists = state.enrolledStudents.some((s) => isSameStudent(s, m));
+      if (!exists) {
+        state.enrolledStudents.unshift({
+          id: m.studentId,
+          name: m.studentName,
+          email: (m as any).email || `${m.studentName.toLowerCase().replace(/\s+/g, ".")}@careertransformer.in`,
+          cohort: "Cohort 14 (Data Analytics)",
+          status: "ONLINE_IN_CALL",
+          avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(m.studentName)}`,
+        });
+      }
+    }
+
+    // 2. Map every enrolled student with resilient matching
     state.enrolledStudents = state.enrolledStudents.map((s) => {
-      // Robust matching: by ID, email, exact name, or partial name
-      const attendanceRecord = markedStudentsMap[s.id] ||
-        Object.values(markedStudentsMap).find((m: any) => (
-          m.studentId === s.id ||
-          (m.email && s.email && m.email.toLowerCase() === s.email.toLowerCase()) ||
-          m.studentName?.toLowerCase() === s.name.toLowerCase() ||
-          s.name.toLowerCase().includes(m.studentName?.toLowerCase() || "___") ||
-          (m.studentName && m.studentName.toLowerCase().includes(s.name.toLowerCase()))
-        ));
-
+      const attendanceRecord: any = markedStudentsList.find((m: any) => isSameStudent(s, m));
       const isMarked = !!attendanceRecord;
 
-      // Online ONLY if currently active in live participants
-      const isOnline = activeIds.has(s.id) ||
-        (s.email && activeEmails.has(s.email.toLowerCase())) ||
-        (s.name && activeNames.has(s.name.toLowerCase())) ||
-        Array.from(activeNames).some((an) => an.includes(s.name.toLowerCase()) || s.name.toLowerCase().includes(an));
+      const isOnline = state.participants.some((p) => isSameStudent(s, p));
 
       let status: "ONLINE_IN_CALL" | "LEFT_CALL" | "ABSENT_NOT_JOINED" = "ABSENT_NOT_JOINED";
       if (isOnline) {

@@ -114,16 +114,16 @@ export default function AdminLiveStudioPage() {
         const channel = new BroadcastChannel("career_transformer_zoom_room");
         channel.postMessage({ type: action === "PING_ABSENT" || action === "PING_STUDENT" ? "INSTRUCTOR_PING" : "STREAM_UPDATED" });
         channel.close();
-      } catch (e) {}
+      } catch (e) { }
 
       setSuccessMsg(
         action === "END_AND_ARCHIVE"
           ? "🎉 Live stream ended and automatically published to Student Recorded Classes!"
           : action === "PING_ABSENT"
-          ? "🔔 Live class notification ping broadcasted to all absent students!"
-          : action === "PING_STUDENT"
-          ? `🔔 Live class notification ping sent to ${extraBody?.studentName || "student"}!`
-          : "Classroom updated in real-time!"
+            ? "🔔 Live class notification ping broadcasted to all absent students!"
+            : action === "PING_STUDENT"
+              ? `🔔 Live class notification ping sent to ${extraBody?.studentName || "student"}!`
+              : "Classroom updated in real-time!"
       );
       setTimeout(() => setSuccessMsg(null), 3500);
     } catch (err: any) {
@@ -201,6 +201,29 @@ export default function AdminLiveStudioPage() {
   const verifiedList = Object.values(markedMap);
   const verifiedCount = verifiedList.length;
 
+  const isSameStudent = (s: any, target: any) => {
+    if (!s || !target) return false;
+    const tId = target.id || target.studentId;
+    if (s.id && tId && s.id === tId) return true;
+
+    const tEmail = target.email;
+    if (s.email && tEmail && s.email.toLowerCase() === tEmail.toLowerCase()) return true;
+
+    const tName = target.name || target.studentName;
+    if (s.name && tName) {
+      const n1 = s.name.toLowerCase().trim();
+      const n2 = tName.toLowerCase().trim();
+      if (n1 === n2) return true;
+      const parts1 = n1.split(/\s+/);
+      const parts2 = n2.split(/\s+/);
+      if (parts1.length > 0 && parts2.length > 0) {
+        if (parts1[0] === parts2[0] && parts1[parts1.length - 1] === parts2[parts2.length - 1]) return true;
+        if (parts1[0] === parts2[0] && parts1[0].length >= 3) return true;
+      }
+    }
+    return false;
+  };
+
   const onlineCount = enrolledStudents.filter((s: any) => s.status === "ONLINE_IN_CALL").length;
 
   const totalCount = enrolledStudents.length;
@@ -209,18 +232,12 @@ export default function AdminLiveStudioPage() {
   const handsRaisedCount = (liveState?.participants || []).filter((p: any) => p && p.isHandRaised).length;
 
   const filteredStudents = enrolledStudents.filter((student: any) => {
-    const isMarked = student.isAttendanceMarked ||
-      !!markedMap[student.id] ||
-      Object.values(markedMap).some((m: any) =>
-        m.studentId === student.id ||
-        m.studentName?.toLowerCase() === student.name.toLowerCase() ||
-        (m.studentName && student.name.toLowerCase().includes(m.studentName.toLowerCase()))
-      );
+    const isMarked = student.isAttendanceMarked || verifiedList.some((m: any) => isSameStudent(student, m));
     const isOnline = student.status === "ONLINE_IN_CALL";
 
     if (studentFilter === "ONLINE" && !isOnline) return false;
     if (studentFilter === "VERIFIED" && !isMarked) return false;
-    if (studentFilter === "ABSENT" && isOnline) return false;
+    if (studentFilter === "ABSENT" && (isOnline || isMarked)) return false;
     if (studentFilter === "HAND_RAISED" && !student.isHandRaised) return false;
 
     if (searchQuery.trim()) {
@@ -333,11 +350,10 @@ export default function AdminLiveStudioPage() {
               type="button"
               onClick={liveState?.activeAttendanceCheck?.isActive ? handleCloseAttendance : handleTriggerAttendance}
               disabled={isUpdating}
-              className={`px-4 py-2 rounded-xl border font-extrabold text-xs flex items-center gap-2 transition-all cursor-pointer shadow-lg ${
-                liveState?.activeAttendanceCheck?.isActive
+              className={`px-4 py-2 rounded-xl border font-extrabold text-xs flex items-center gap-2 transition-all cursor-pointer shadow-lg ${liveState?.activeAttendanceCheck?.isActive
                   ? "bg-emerald-500/20 border-emerald-400 text-emerald-300 shadow-emerald-500/20 animate-pulse"
                   : "bg-emerald-500/10 border-emerald-500/30 hover:bg-emerald-500/20 text-emerald-300"
-              }`}
+                }`}
             >
               <CheckCircle2 className="w-4 h-4 text-emerald-400" />
               <span>
@@ -433,18 +449,16 @@ export default function AdminLiveStudioPage() {
             <button
               type="button"
               onClick={() => setStudentFilter("ALL")}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                studentFilter === "ALL" ? "bg-[#397CFF] text-white" : "text-[#94A3B8] hover:text-white"
-              }`}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${studentFilter === "ALL" ? "bg-[#397CFF] text-white" : "text-[#94A3B8] hover:text-white"
+                }`}
             >
               All Cohort ({totalCount})
             </button>
             <button
               type="button"
               onClick={() => setStudentFilter("ONLINE")}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                studentFilter === "ONLINE" ? "bg-blue-600 text-white" : "text-[#94A3B8] hover:text-blue-400"
-              }`}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${studentFilter === "ONLINE" ? "bg-blue-600 text-white" : "text-[#94A3B8] hover:text-blue-400"
+                }`}
             >
               <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
               <span>In Call ({onlineCount})</span>
@@ -452,9 +466,8 @@ export default function AdminLiveStudioPage() {
             <button
               type="button"
               onClick={() => setStudentFilter("VERIFIED")}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                studentFilter === "VERIFIED" ? "bg-emerald-600 text-white" : "text-[#94A3B8] hover:text-emerald-400"
-              }`}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${studentFilter === "VERIFIED" ? "bg-emerald-600 text-white" : "text-[#94A3B8] hover:text-emerald-400"
+                }`}
             >
               <CheckCircle2 className="w-3.5 h-3.5" />
               <span>Verified Present ({verifiedCount})</span>
@@ -462,18 +475,16 @@ export default function AdminLiveStudioPage() {
             <button
               type="button"
               onClick={() => setStudentFilter("ABSENT")}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                studentFilter === "ABSENT" ? "bg-rose-600 text-white" : "text-[#94A3B8] hover:text-rose-400"
-              }`}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${studentFilter === "ABSENT" ? "bg-rose-600 text-white" : "text-[#94A3B8] hover:text-rose-400"
+                }`}
             >
               Absent ({absentCount})
             </button>
             <button
               type="button"
               onClick={() => setStudentFilter("HAND_RAISED")}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                studentFilter === "HAND_RAISED" ? "bg-amber-600 text-white" : "text-[#94A3B8] hover:text-amber-400"
-              }`}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${studentFilter === "HAND_RAISED" ? "bg-amber-600 text-white" : "text-[#94A3B8] hover:text-amber-400"
+                }`}
             >
               ✋ Hand Raised ({handsRaisedCount})
             </button>
@@ -507,22 +518,8 @@ export default function AdminLiveStudioPage() {
             <tbody className="divide-y divide-[#162942] bg-[#081827]">
               {filteredStudents.length > 0 ? (
                 filteredStudents.map((student: any) => {
-                  const isMarked = student.isAttendanceMarked ||
-                    !!markedMap[student.id] ||
-                    Object.values(markedMap).some((m: any) =>
-                      m.studentId === student.id ||
-                      m.studentName?.toLowerCase() === student.name.toLowerCase() ||
-                      student.name.toLowerCase().includes(m.studentName?.toLowerCase() || "___") ||
-                      (m.studentName && m.studentName.toLowerCase().includes(student.name.toLowerCase()))
-                    );
-
-                  const markedRecord: any = markedMap[student.id] ||
-                    Object.values(markedMap).find((m: any) =>
-                      m.studentId === student.id ||
-                      m.studentName?.toLowerCase() === student.name.toLowerCase() ||
-                      student.name.toLowerCase().includes(m.studentName?.toLowerCase() || "___") ||
-                      (m.studentName && m.studentName.toLowerCase().includes(student.name.toLowerCase()))
-                    );
+                  const markedRecord: any = student.isAttendanceMarked ? student : verifiedList.find((m: any) => isSameStudent(student, m));
+                  const isMarked = student.isAttendanceMarked || !!markedRecord;
 
                   const isOnline = student.status === "ONLINE_IN_CALL";
                   const isLeft = student.status === "LEFT_CALL";
@@ -597,11 +594,10 @@ export default function AdminLiveStudioPage() {
                           <div className="flex items-center gap-2">
                             {/* Camera Status */}
                             <span
-                              className={`p-1.5 rounded-lg text-[10px] font-bold flex items-center gap-1 ${
-                                isCam
+                              className={`p-1.5 rounded-lg text-[10px] font-bold flex items-center gap-1 ${isCam
                                   ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
                                   : "bg-[#06101D] text-[#64748B] border border-[#162942]"
-                              }`}
+                                }`}
                               title={isCam ? "Webcam Video is Active" : "Webcam Video is Off"}
                             >
                               <Video className="w-3 h-3" />
@@ -610,11 +606,10 @@ export default function AdminLiveStudioPage() {
 
                             {/* Mic Status */}
                             <span
-                              className={`p-1.5 rounded-lg text-[10px] font-bold flex items-center gap-1 ${
-                                isMic
+                              className={`p-1.5 rounded-lg text-[10px] font-bold flex items-center gap-1 ${isMic
                                   ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 animate-pulse"
                                   : "bg-[#06101D] text-[#64748B] border border-[#162942]"
-                              }`}
+                                }`}
                               title={isMic ? "Microphone is Unmuted (Speaking)" : "Microphone is Muted"}
                             >
                               <Mic className="w-3 h-3" />
@@ -929,11 +924,10 @@ export default function AdminLiveStudioPage() {
               {liveState?.chatMessages?.map((m: any) => (
                 <div
                   key={m.id}
-                  className={`p-3.5 rounded-2xl text-xs leading-relaxed ${
-                    m.isInstructor
+                  className={`p-3.5 rounded-2xl text-xs leading-relaxed ${m.isInstructor
                       ? "bg-rose-950/40 border border-rose-500/40 text-rose-100 ml-3"
                       : "bg-[#06101D] border border-[#162942] text-slate-200"
-                  }`}
+                    }`}
                 >
                   <div className="flex items-center justify-between mb-1">
                     <span className={`font-bold ${m.isInstructor ? "text-rose-400 font-mono" : "text-[#41D8FF]"}`}>
