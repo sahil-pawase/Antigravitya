@@ -25,12 +25,25 @@ export function LiveCallNotificationBanner() {
     instructor: string;
     instructorTitle: string;
     viewers: number;
+    activePings?: Array<{
+      id: string;
+      targetStudentId?: string | null;
+      targetStudentName?: string | null;
+      targetStudentEmail?: string | null;
+      instructorName: string;
+      streamTitle: string;
+      message: string;
+      timestamp: string;
+      expiresAt: number;
+    }>;
   } | null>(null);
 
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [currentUserName, setCurrentUserName] = useState<string | null>(null);
   const [isDismissed, setIsDismissed] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
-  const [hasPlayedChime, setHasPlayedChime] = useState(false);
   const prevIsLiveRef = useRef<boolean>(false);
+  const prevPingIdRef = useRef<string | null>(null);
 
   // Play pleasant incoming live call chime using Web Audio API
   const playIncomingCallChime = () => {
@@ -48,7 +61,7 @@ export function LiveCallNotificationBanner() {
         osc.frequency.setValueAtTime(freq, ctx.currentTime + start);
 
         gain.gain.setValueAtTime(0, ctx.currentTime + start);
-        gain.gain.linearRampToValueAtTime(0.18, ctx.currentTime + start + 0.05);
+        gain.gain.linearRampToValueAtTime(0.2, ctx.currentTime + start + 0.05);
         gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + start + duration);
 
         osc.connect(gain);
@@ -60,8 +73,8 @@ export function LiveCallNotificationBanner() {
 
       // Zoom-like 3-note melodic incoming call chime (E5 -> G#5 -> B5)
       playTone(659.25, 0.0, 0.4);
-      playTone(830.61, 0.25, 0.4);
-      playTone(987.77, 0.5, 0.7);
+      playTone(830.61, 0.22, 0.4);
+      playTone(987.77, 0.45, 0.7);
     } catch (e) {
       console.warn("Chime playback error:", e);
     }
@@ -73,18 +86,40 @@ export function LiveCallNotificationBanner() {
       const data = await res.json();
       if (data.success && data.state) {
         const state = data.state;
+        if (data.user) {
+          setCurrentUserId(data.user.id);
+          setCurrentUserName(data.user.fullName);
+        }
+
         setLiveState({
           isLive: state.isLive,
           title: state.title || "Live Mentorship Session",
           instructor: state.instructor || "Lead Analytics Instructor",
           instructorTitle: state.instructorTitle || "Lead Analytics Architect",
           viewers: state.viewers || 74,
+          activePings: state.activePings || [],
         });
 
         // If newly went live, ring chime and un-dismiss
         if (state.isLive && !prevIsLiveRef.current) {
           setIsDismissed(false);
           playIncomingCallChime();
+        }
+
+        // Check if there's a new ping targeted to this student or broadcast
+        const latestPing = (state.activePings || [])[0];
+        if (latestPing && latestPing.id !== prevPingIdRef.current) {
+          const isTargeted =
+            !latestPing.targetStudentId ||
+            latestPing.targetStudentId === currentUserId ||
+            (currentUserName && latestPing.targetStudentName?.toLowerCase().includes(currentUserName.toLowerCase())) ||
+            (currentUserName && currentUserName.toLowerCase().includes(latestPing.targetStudentName?.toLowerCase() || ""));
+
+          if (isTargeted) {
+            setIsDismissed(false);
+            playIncomingCallChime();
+          }
+          prevPingIdRef.current = latestPing.id;
         }
 
         prevIsLiveRef.current = state.isLive;
@@ -96,13 +131,13 @@ export function LiveCallNotificationBanner() {
 
   useEffect(() => {
     checkLiveStatus();
-    const interval = setInterval(checkLiveStatus, 4000);
+    const interval = setInterval(checkLiveStatus, 3000);
 
     // Cross-tab broadcast listener
     try {
       const channel = new BroadcastChannel("career_transformer_zoom_room");
       channel.onmessage = (event) => {
-        if (event.data?.type === "STREAM_STARTED") {
+        if (event.data?.type === "STREAM_STARTED" || event.data?.type === "INSTRUCTOR_PING") {
           checkLiveStatus();
         }
       };
@@ -113,7 +148,7 @@ export function LiveCallNotificationBanner() {
     } catch (e) {
       return () => clearInterval(interval);
     }
-  }, []);
+  }, [currentUserId, currentUserName]);
 
   // Do not show floating notification banner if already inside the live room page
   if (pathname === "/dashboard/live" || pathname === "/admin/live") {
@@ -125,32 +160,45 @@ export function LiveCallNotificationBanner() {
     return null;
   }
 
+  const latestActivePing = (liveState.activePings || [])[0];
+  const hasActivePing = !!latestActivePing;
+
   return (
     <>
       {/* 1. Global Top Floating Alert Header */}
       <div className="fixed top-3 left-1/2 -translate-x-1/2 z-50 w-11/12 max-w-2xl animate-bounce-short">
-        <div className="p-3 sm:p-3.5 px-4 sm:px-5 rounded-2xl bg-[#06101D]/95 backdrop-blur-xl border border-rose-500/50 shadow-2xl shadow-rose-950/80 flex items-center justify-between gap-3 text-xs ring-2 ring-rose-500/30">
+        <div className={`p-3.5 sm:p-4 px-4 sm:px-5 rounded-2xl bg-[#06101D]/95 backdrop-blur-xl border ${
+          hasActivePing
+            ? "border-amber-400/80 shadow-2xl shadow-amber-950/90 ring-2 ring-amber-400/50"
+            : "border-rose-500/50 shadow-2xl shadow-rose-950/80 ring-2 ring-rose-500/30"
+        } flex items-center justify-between gap-3 text-xs`}>
           <div className="flex items-center gap-3 min-w-0">
             {/* Animated Ringing Radar Icon */}
             <div className="relative flex-shrink-0">
-              <span className="absolute -inset-1 rounded-xl bg-rose-500/30 animate-ping" />
-              <div className="relative w-9 h-9 rounded-xl bg-gradient-to-tr from-rose-600 to-pink-600 flex items-center justify-center text-white shadow-lg shadow-rose-600/40">
+              <span className={`absolute -inset-1 rounded-xl ${hasActivePing ? "bg-amber-400/40" : "bg-rose-500/30"} animate-ping`} />
+              <div className={`relative w-10 h-10 rounded-xl bg-gradient-to-tr ${
+                hasActivePing
+                  ? "from-amber-500 to-orange-600 shadow-amber-600/40"
+                  : "from-rose-600 to-pink-600 shadow-rose-600/40"
+              } flex items-center justify-center text-white shadow-lg`}>
                 <Radio className="w-5 h-5 animate-pulse" />
               </div>
             </div>
 
             <div className="min-w-0">
-              <div className="flex items-center gap-2 mb-0.5">
-                <span className="px-2 py-0.5 rounded-full bg-rose-500 text-white font-extrabold text-[9px] uppercase tracking-wider animate-pulse flex items-center gap-1">
+              <div className="flex items-center gap-2 mb-1 flex-wrap">
+                <span className={`px-2 py-0.5 rounded-full ${
+                  hasActivePing ? "bg-amber-400 text-black" : "bg-rose-500 text-white"
+                } font-extrabold text-[9px] uppercase tracking-wider animate-pulse flex items-center gap-1`}>
                   <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
-                  LIVE CALL STARTED
+                  {hasActivePing ? "🔔 INSTRUCTOR CALL PING" : "🔴 LIVE CALL STARTED"}
                 </span>
-                <span className="text-[10px] text-rose-300 font-mono hidden sm:inline">
-                  Hosted by {liveState.instructor}
+                <span className="text-[10px] text-amber-200 font-mono hidden sm:inline">
+                  Instructor {liveState.instructor}
                 </span>
               </div>
               <p className="text-white font-bold text-xs truncate max-w-xs sm:max-w-md">
-                {liveState.title}
+                {hasActivePing ? latestActivePing.message : liveState.title}
               </p>
             </div>
           </div>
@@ -159,10 +207,14 @@ export function LiveCallNotificationBanner() {
             {/* Join Call Button */}
             <Link
               href="/dashboard/live"
-              className="px-4 py-2 rounded-xl bg-gradient-to-r from-rose-500 to-pink-600 hover:from-rose-400 hover:to-pink-500 text-white font-extrabold text-xs shadow-lg shadow-rose-600/40 flex items-center gap-1.5 transition-all hover:scale-105 cursor-pointer"
+              className={`px-4 py-2 rounded-xl bg-gradient-to-r ${
+                hasActivePing
+                  ? "from-amber-400 to-orange-500 hover:from-amber-300 hover:to-orange-400 text-black shadow-amber-500/40"
+                  : "from-rose-500 to-pink-600 hover:from-rose-400 hover:to-pink-500 text-white shadow-rose-600/40"
+              } font-extrabold text-xs shadow-lg flex items-center gap-1.5 transition-all hover:scale-105 cursor-pointer`}
             >
-              <PhoneCall className="w-3.5 h-3.5 fill-white animate-bounce" />
-              <span>Join Call 🚀</span>
+              <PhoneCall className={`w-3.5 h-3.5 ${hasActivePing ? "fill-black" : "fill-white"} animate-bounce`} />
+              <span>Join Call Now 🚀</span>
             </Link>
 
             {/* Sound Chime Toggle */}
@@ -195,17 +247,21 @@ export function LiveCallNotificationBanner() {
       <div className="fixed bottom-6 right-6 z-40">
         <Link
           href="/dashboard/live"
-          className="p-3.5 px-4 rounded-2xl bg-[#081827]/95 backdrop-blur-xl border border-rose-500/40 shadow-2xl shadow-rose-950/80 flex items-center gap-3 text-xs text-white hover:border-rose-400 hover:scale-105 transition-all group cursor-pointer"
+          className={`p-3.5 px-4 rounded-2xl bg-[#081827]/95 backdrop-blur-xl border ${
+            hasActivePing ? "border-amber-400/60 shadow-amber-950/80" : "border-rose-500/40 shadow-rose-950/80"
+          } shadow-2xl flex items-center gap-3 text-xs text-white hover:scale-105 transition-all group cursor-pointer`}
         >
           <div className="relative">
-            <span className="absolute -inset-1 rounded-full bg-rose-500/40 animate-ping" />
-            <div className="relative w-8 h-8 rounded-xl bg-gradient-to-tr from-rose-600 to-pink-600 flex items-center justify-center text-white">
+            <span className={`absolute -inset-1 rounded-full ${hasActivePing ? "bg-amber-400/40" : "bg-rose-500/40"} animate-ping`} />
+            <div className={`relative w-8 h-8 rounded-xl bg-gradient-to-tr ${
+              hasActivePing ? "from-amber-500 to-orange-600" : "from-rose-600 to-pink-600"
+            } flex items-center justify-center text-white`}>
               <PhoneCall className="w-4 h-4" />
             </div>
           </div>
           <div className="text-left">
-            <span className="text-[10px] text-rose-400 font-extrabold uppercase tracking-wider block">
-              🔴 Live Meeting Active
+            <span className={`text-[10px] ${hasActivePing ? "text-amber-400" : "text-rose-400"} font-extrabold uppercase tracking-wider block`}>
+              {hasActivePing ? "🔔 Instructor Pinged You" : "🔴 Live Meeting Active"}
             </span>
             <span className="font-bold text-xs text-white block max-w-[140px] truncate">
               {liveState.title}

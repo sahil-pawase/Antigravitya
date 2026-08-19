@@ -18,6 +18,7 @@ import {
   Share2,
   ShieldCheck,
   Pin,
+  BellRing,
 } from "lucide-react";
 import { Button } from "@/ui/Button";
 import { Badge } from "@/ui/Badge";
@@ -144,6 +145,48 @@ export default function LiveClassesPage() {
         onMarkAttendance={handleMarkAttendance}
         onDownloadDataset={() => alert("Exercise file: " + (liveData?.datasetName || "dataset.csv") + " has been downloaded to your computer.")}
       />
+
+      {/* 1.4 Dedicated Live Instructor Ping Banner for Students */}
+      {liveData?.activePings && liveData.activePings.length > 0 && (
+        <div className="p-4 px-6 rounded-2xl bg-gradient-to-r from-amber-950/60 via-[#081827] to-orange-950/60 border-2 border-amber-400 shadow-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 animate-fadeIn ring-2 ring-amber-400/30">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-500/30">
+              <BellRing className="w-5 h-5 animate-bounce" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h4 className="text-xs font-bold text-white uppercase tracking-wider">
+                  🔔 Instructor Attention Ping ({liveData.activePings[0].timestamp})
+                </h4>
+                <span className="text-[10px] text-amber-400 bg-amber-500/20 px-2 py-0.5 rounded font-mono font-bold">
+                  High Priority
+                </span>
+              </div>
+              <p className="text-xs text-amber-200 mt-0.5 font-medium">
+                {liveData.activePings[0].message}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={async () => {
+              const pingId = liveData.activePings[0].id;
+              await fetch("/api/live-class", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ action: "DISMISS_PING", pingId }),
+              });
+              setLiveData((prev: any) => ({
+                ...prev,
+                activePings: (prev.activePings || []).filter((p: any) => p.id !== pingId),
+              }));
+            }}
+            className="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-200 text-xs font-bold transition-all cursor-pointer flex-shrink-0"
+          >
+            Acknowledge ✕
+          </button>
+        </div>
+      )}
 
       {/* 1.5 Dedicated Live Attendance Verification Banner for Students */}
       {liveData?.activeAttendanceCheck?.isActive && (

@@ -39,6 +39,18 @@ export interface LiveAttendanceCheck {
   markedStudents: Record<string, { studentId: string; studentName: string; markedAt: string }>;
 }
 
+export interface LivePingNotification {
+  id: string;
+  targetStudentId?: string | null;
+  targetStudentName?: string | null;
+  targetStudentEmail?: string | null;
+  instructorName: string;
+  streamTitle: string;
+  message: string;
+  timestamp: string;
+  expiresAt: number;
+}
+
 export interface LiveClassState {
   isLive: boolean;
   title: string;
@@ -52,6 +64,7 @@ export interface LiveClassState {
   startedAt: string | null;
   viewers: number;
   activeAttendanceCheck: LiveAttendanceCheck | null;
+  activePings: LivePingNotification[];
   activePoll: {
     id: string;
     question: string;
@@ -125,6 +138,7 @@ function getSafeLiveClassState(): LiveClassState {
       ],
       pinnedNotice: "📢 Class Assignment 2 on Window Functions will be released at 11:30 AM today!",
       activeAttendanceCheck: null,
+      activePings: [],
       participants: [],
       enrolledStudents: DEFAULT_ENROLLED_STUDENTS,
     };
@@ -133,6 +147,15 @@ function getSafeLiveClassState(): LiveClassState {
   if (global.__liveClassState.activeAttendanceCheck === undefined) {
     global.__liveClassState.activeAttendanceCheck = null;
   }
+  if (!Array.isArray(global.__liveClassState.activePings)) {
+    global.__liveClassState.activePings = [];
+  }
+
+  // Filter out expired pings (older than 10 mins)
+  const now = Date.now();
+  global.__liveClassState.activePings = global.__liveClassState.activePings.filter(
+    (p) => p && p.expiresAt > now
+  );
 
   // Guard against missing properties from previous hot-reloads
   if (!Array.isArray(global.__liveClassState.participants)) {
@@ -146,7 +169,6 @@ function getSafeLiveClassState(): LiveClassState {
   }
 
   // De-duplicate participants and filter out stale sessions older than 20 seconds
-  const now = Date.now();
   const seenIds = new Set<string>();
   const seenEmails = new Set<string>();
   const activeCleanParticipants: LiveParticipant[] = [];
@@ -233,7 +255,7 @@ export async function POST(req: NextRequest) {
     const state = getSafeLiveClassState();
 
     // 1. Admin Actions
-    if (["START_STREAM", "STOP_STREAM", "END_AND_ARCHIVE", "UPDATE_DETAILS", "UPDATE_DATASET", "CREATE_POLL", "END_POLL", "PIN_NOTICE", "MUTE_STUDENT", "LOWER_HAND", "DISMISS_STUDENT", "PING_ABSENT", "TRIGGER_ATTENDANCE", "CLOSE_ATTENDANCE"].includes(action)) {
+    if (["START_STREAM", "STOP_STREAM", "END_AND_ARCHIVE", "UPDATE_DETAILS", "UPDATE_DATASET", "CREATE_POLL", "END_POLL", "PIN_NOTICE", "MUTE_STUDENT", "LOWER_HAND", "DISMISS_STUDENT", "PING_ABSENT", "PING_STUDENT", "TRIGGER_ATTENDANCE", "CLOSE_ATTENDANCE"].includes(action)) {
       if (!session || (session.role !== "ADMIN" && session.role !== "INSTRUCTOR")) {
         return NextResponse.json({ error: "Unauthorized: Admin privileges required." }, { status: 403 });
       }
@@ -351,8 +373,29 @@ export async function POST(req: NextRequest) {
         if (p) p.isHandRaised = false;
       } else if (action === "DISMISS_STUDENT") {
         state.participants = state.participants.filter((x) => x.id !== body.studentId);
-      } else if (action === "PING_ABSENT") {
-        state.pinnedNotice = `🔔 REMINDER: Live Masterclass on "${state.title}" has started. All enrolled students please join now!`;
+      } else if (action === "PING_ABSENT" || action === "PING_STUDENT") {
+        const targetId = body.studentId || null;
+        const targetName = body.studentName || null;
+        const targetEmail = body.studentEmail || null;
+
+        const pingMsg = targetName && targetName !== "all absent students"
+          ? `📢 Instructor ${state.instructor} is waiting for you in "${state.title}"! Please join the live class now.`
+          : `🔔 Live Class Alert: "${state.title}" is in session with instructor ${state.instructor}. Please join the live classroom immediately!`;
+
+        const newPing: LivePingNotification = {
+          id: "ping-" + Date.now(),
+          targetStudentId: targetId,
+          targetStudentName: targetName,
+          targetStudentEmail: targetEmail,
+          instructorName: state.instructor || "Sahil Pawase",
+          streamTitle: state.title || "Live Masterclass",
+          message: pingMsg,
+          timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          expiresAt: Date.now() + 1000 * 60 * 10, // 10 mins
+        };
+
+        state.activePings = [newPing, ...(state.activePings || [])].slice(0, 15);
+        state.pinnedNotice = pingMsg;
       }
 
       return NextResponse.json({ success: true, state });
@@ -525,6 +568,15 @@ export async function POST(req: NextRequest) {
         state,
         markedRecord: state.activeAttendanceCheck.markedStudents[studentId],
       });
+    }
+
+    // 6. Dismiss Ping Notification
+    if (action === "DISMISS_PING") {
+      const pingId = body.pingId;
+      if (pingId) {
+        state.activePings = (state.activePings || []).filter((p) => p.id !== pingId);
+      }
+      return NextResponse.json({ success: true, state });
     }
 
     return NextResponse.json({ error: "Invalid action" }, { status: 400 });

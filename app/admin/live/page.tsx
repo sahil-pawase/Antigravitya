@@ -108,11 +108,21 @@ export default function AdminLiveStudioPage() {
       if (!res.ok) throw new Error(data.error || "Action failed");
 
       setLiveState(data.state);
+
+      // Broadcast across tabs
+      try {
+        const channel = new BroadcastChannel("career_transformer_zoom_room");
+        channel.postMessage({ type: action === "PING_ABSENT" || action === "PING_STUDENT" ? "INSTRUCTOR_PING" : "STREAM_UPDATED" });
+        channel.close();
+      } catch (e) {}
+
       setSuccessMsg(
         action === "END_AND_ARCHIVE"
           ? "🎉 Live stream ended and automatically published to Student Recorded Classes!"
           : action === "PING_ABSENT"
-          ? "🔔 Urgent call reminder broadcasted to all absent students!"
+          ? "🔔 Live class notification ping broadcasted to all absent students!"
+          : action === "PING_STUDENT"
+          ? `🔔 Live class notification ping sent to ${extraBody?.studentName || "student"}!`
           : "Classroom updated in real-time!"
       );
       setTimeout(() => setSuccessMsg(null), 3500);
@@ -339,7 +349,7 @@ export default function AdminLiveStudioPage() {
 
             <button
               type="button"
-              onClick={() => handleAction("PING_ABSENT")}
+              onClick={() => handleAction("PING_ABSENT", { studentName: "all absent students" })}
               disabled={isUpdating}
               className="px-4 py-2 rounded-xl bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20 text-amber-300 font-extrabold text-xs flex items-center gap-2 transition-all cursor-pointer"
             >
@@ -659,8 +669,8 @@ export default function AdminLiveStudioPage() {
                         ) : (
                           <button
                             type="button"
-                            onClick={() => handleAction("PING_ABSENT")}
-                            className="px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 hover:bg-amber-500/20 text-[10px] font-bold"
+                            onClick={() => handleAction("PING_STUDENT", { studentId: student.id, studentName: student.name, studentEmail: student.email })}
+                            className="px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 hover:bg-amber-500/20 text-[10px] font-bold cursor-pointer transition-colors"
                           >
                             Send Ping 🔔
                           </button>
