@@ -892,26 +892,79 @@ export function ZoomLiveRoom({
     return `${m}:${s}`;
   };
 
-  // Distinct participant identities with specific unique styles
-  const defaultParticipants = mode === "student"
-    ? [
-        { id: "inst-1", name: instructorName, role: "Host / Lead Architect", isSpeaking: hasRemoteAudio || remoteAudioLevel > 15, isSelf: false, isHost: true, gradient: "from-[#397CFF] to-[#41D8FF]" },
-        { id: "stu-self", name: "You", role: "Student (You)", isSpeaking: isMicOn && audioLevel > 15, isSelf: true, isHost: false, gradient: "from-blue-600 to-indigo-500" },
-        { id: "stu-1", name: "Neha Gupta", role: "Student", isSpeaking: false, isSelf: false, isHost: false, gradient: "from-emerald-600 to-teal-500" },
-        { id: "stu-2", name: "Rohan Verma", role: "Student", isSpeaking: false, isSelf: false, isHost: false, gradient: "from-amber-600 to-orange-500", isHandRaised: true },
-        { id: "stu-3", name: "Priya Sharma", role: "Student", isSpeaking: false, isSelf: false, isHost: false, gradient: "from-purple-600 to-pink-500" },
-        { id: "stu-4", name: "Aarav Patel", role: "Teaching Assistant", isSpeaking: false, isSelf: false, isHost: false, gradient: "from-cyan-600 to-blue-500" },
-      ]
-    : [
-        { id: "inst-1", name: `${instructorName} (You)`, role: "Host / Lead Architect", isSpeaking: isMicOn && audioLevel > 15, isSelf: true, isHost: true, gradient: "from-[#397CFF] to-[#41D8FF]" },
-        { id: "stu-peer", name: "Student Participant", role: "Student", isSpeaking: hasRemoteAudio || remoteAudioLevel > 15, isSelf: false, isHost: false, isRemotePeer: true, gradient: "from-blue-600 to-indigo-500" },
-        { id: "stu-1", name: "Neha Gupta", role: "Student", isSpeaking: false, isSelf: false, isHost: false, gradient: "from-emerald-600 to-teal-500" },
-        { id: "stu-2", name: "Rohan Verma", role: "Student", isSpeaking: false, isSelf: false, isHost: false, gradient: "from-amber-600 to-orange-500", isHandRaised: true },
-        { id: "stu-3", name: "Priya Sharma", role: "Student", isSpeaking: false, isSelf: false, isHost: false, gradient: "from-purple-600 to-pink-500" },
-        { id: "stu-4", name: "Aarav Patel", role: "Teaching Assistant", isSpeaking: false, isSelf: false, isHost: false, gradient: "from-cyan-600 to-blue-500" },
-      ];
+  // Build dynamic real participants list (strictly original joined attendees, NO duplicates, NO mock students)
+  const participants = React.useMemo(() => {
+    // 1. Host Tile (Always present)
+    const hostTile = {
+      id: "inst-1",
+      name: mode === "instructor" ? `${instructorName} (You)` : instructorName,
+      role: "Host / Lead Architect",
+      isSpeaking: mode === "instructor" ? (isMicOn && audioLevel > 15) : (hasRemoteAudio || remoteAudioLevel > 15),
+      isSelf: mode === "instructor",
+      isHost: true,
+      gradient: "from-[#397CFF] to-[#41D8FF]",
+    };
 
-  const participants = defaultParticipants;
+    if (mode === "student") {
+      const selfTile = {
+        id: "stu-self",
+        name: "You",
+        role: "Student (You)",
+        isSpeaking: isMicOn && audioLevel > 15,
+        isSelf: true,
+        isHost: false,
+        gradient: "from-blue-600 to-indigo-500",
+      };
+
+      // Filter out duplicate instructor or self from liveParticipants
+      const otherRealStudents = (liveParticipants || [])
+        .filter((p) => p && p.role === "STUDENT" && p.id !== clientIdRef.current && p.name !== "You")
+        .map((p, idx) => ({
+          id: p.id || `peer-${idx}`,
+          name: p.name,
+          role: "Student",
+          isSpeaking: p.isSpeaking || false,
+          isSelf: false,
+          isHost: false,
+          isHandRaised: p.isHandRaised || false,
+          gradient: "from-emerald-600 to-teal-500",
+        }));
+
+      return [hostTile, selfTile, ...otherRealStudents];
+    } else {
+      // mode === "instructor"
+      const realStudents = (liveParticipants || [])
+        .filter((p) => p && p.role === "STUDENT")
+        .map((p, idx) => ({
+          id: p.id || `stu-${idx}`,
+          name: p.name || "Student Participant",
+          role: "Student",
+          isSpeaking: p.isSpeaking || (hasRemoteAudio || remoteAudioLevel > 15),
+          isSelf: false,
+          isHost: false,
+          isRemotePeer: true,
+          isHandRaised: p.isHandRaised || false,
+          gradient: "from-blue-600 to-indigo-500",
+        }));
+
+      // If remote student stream/frame arrived but polling list hasn't updated yet, show 1 real student peer tile
+      if (realStudents.length === 0 && (hasRemoteVideo || !!remoteFrame)) {
+        realStudents.push({
+          id: "stu-peer",
+          name: "Student Participant",
+          role: "Student",
+          isSpeaking: hasRemoteAudio || remoteAudioLevel > 15,
+          isSelf: false,
+          isHost: false,
+          isRemotePeer: true,
+          isHandRaised: false,
+          gradient: "from-blue-600 to-indigo-500",
+        });
+      }
+
+      return [hostTile, ...realStudents];
+    }
+  }, [mode, instructorName, isMicOn, audioLevel, hasRemoteAudio, remoteAudioLevel, liveParticipants, hasRemoteVideo, remoteFrame]);
 
   return (
     <div

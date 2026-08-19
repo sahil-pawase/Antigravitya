@@ -80,13 +80,7 @@ const DEFAULT_ENROLLED_STUDENTS: EnrolledStudent[] = [
   { id: "stu-9", name: "Divya Kapoor", email: "divya.k@careertransformer.in", cohort: "Cohort 14 (Data Analytics)", status: "ABSENT_NOT_JOINED", avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Divya" },
 ];
 
-const DEFAULT_PARTICIPANTS: LiveParticipant[] = [
-  { id: "stu-1", name: "Neha Gupta", email: "neha.gupta@careertransformer.in", role: "STUDENT", avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Neha", joinedAt: "10:01 AM", lastPing: Date.now(), isCameraOn: true, isMicOn: false, isHandRaised: false },
-  { id: "stu-2", name: "Rohan Verma", email: "rohan.verma@careertransformer.in", role: "STUDENT", avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Rohan", joinedAt: "10:03 AM", lastPing: Date.now(), isCameraOn: false, isMicOn: false, isHandRaised: true },
-  { id: "stu-3", name: "Priya Sharma", email: "priya.s@careertransformer.in", role: "STUDENT", avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Priya", joinedAt: "10:05 AM", lastPing: Date.now(), isCameraOn: true, isMicOn: true, isHandRaised: false, isSpeaking: true },
-  { id: "stu-4", name: "Aarav Patel", email: "aarav.p@careertransformer.in", role: "STUDENT", avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Aarav", joinedAt: "10:06 AM", lastPing: Date.now(), isCameraOn: false, isMicOn: false, isHandRaised: false },
-  { id: "stu-5", name: "Ananya Roy", email: "ananya.roy@careertransformer.in", role: "STUDENT", avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Ananya", joinedAt: "10:08 AM", lastPing: Date.now(), isCameraOn: false, isMicOn: false, isHandRaised: false },
-];
+const DEFAULT_PARTICIPANTS: LiveParticipant[] = [];
 
 function getSafeLiveClassState(): LiveClassState {
   if (!global.__liveClassState) {
@@ -101,7 +95,7 @@ function getSafeLiveClassState(): LiveClassState {
       datasetName: "swiggy_orders_dataset.csv",
       datasetUrl: "#",
       startedAt: new Date(Date.now() - 1000 * 60 * 20).toISOString(),
-      viewers: 5,
+      viewers: 1,
       activePoll: {
         id: "poll-1",
         question: "When calculating running totals in SQL, which clause is required inside OVER()?",
@@ -117,19 +111,16 @@ function getSafeLiveClassState(): LiveClassState {
       },
       chatMessages: [
         { id: "msg-1", sender: "Sahil Pawase (Instructor)", text: "Welcome everyone! Please ensure you have downloaded swiggy_orders_dataset.csv from below.", time: "10:02 AM", isInstructor: true },
-        { id: "msg-2", sender: "Neha Gupta", text: "Sir, when should we use DENSE_RANK() instead of RANK() in SQL?", time: "10:05 AM" },
-        { id: "msg-3", sender: "Rohan Verma", text: "The stream resolution is crystal clear! Ready for window functions.", time: "10:07 AM" },
-        { id: "msg-4", sender: "Sahil Pawase (Instructor)", text: "Great question Neha! DENSE_RANK() does not skip rank positions on duplicate ties. Let me demonstrate now.", time: "10:08 AM", isInstructor: true },
       ],
       pinnedNotice: "📢 Class Assignment 2 on Window Functions will be released at 11:30 AM today!",
-      participants: DEFAULT_PARTICIPANTS,
+      participants: [],
       enrolledStudents: DEFAULT_ENROLLED_STUDENTS,
     };
   }
 
   // Guard against missing properties from previous hot-reloads
   if (!Array.isArray(global.__liveClassState.participants)) {
-    global.__liveClassState.participants = DEFAULT_PARTICIPANTS;
+    global.__liveClassState.participants = [];
   }
   if (!Array.isArray(global.__liveClassState.enrolledStudents)) {
     global.__liveClassState.enrolledStudents = DEFAULT_ENROLLED_STUDENTS;
@@ -138,6 +129,25 @@ function getSafeLiveClassState(): LiveClassState {
     global.__liveClassState.chatMessages = [];
   }
 
+  // De-duplicate participants and filter out stale sessions older than 20 seconds
+  const now = Date.now();
+  const seenIds = new Set<string>();
+  const seenEmails = new Set<string>();
+  const activeCleanParticipants: LiveParticipant[] = [];
+
+  for (const p of global.__liveClassState.participants) {
+    if (!p || !p.id) continue;
+    // Discard stale unpinned guest sessions
+    if (now - p.lastPing > 25000) continue;
+    if (seenIds.has(p.id)) continue;
+    if (p.email && seenEmails.has(p.email)) continue;
+
+    seenIds.add(p.id);
+    if (p.email) seenEmails.add(p.email);
+    activeCleanParticipants.push(p);
+  }
+
+  global.__liveClassState.participants = activeCleanParticipants;
   return global.__liveClassState;
 }
 
@@ -146,11 +156,12 @@ export async function GET(req: NextRequest) {
     const session = await getSession();
     const state = getSafeLiveClassState();
 
-    // Refresh enrolled students active status dynamically based on current participants
-    const activeIds = new Set(state.participants.map((p) => p.id));
+    // Refresh enrolled students active status dynamically based on current real participants
+    const activeEmails = new Set(state.participants.map((p) => p.email).filter(Boolean));
+    const activeNames = new Set(state.participants.map((p) => p.name.toLowerCase()));
     state.enrolledStudents = DEFAULT_ENROLLED_STUDENTS.map((s) => ({
       ...s,
-      status: activeIds.has(s.id) ? "ONLINE_IN_CALL" : "ABSENT_NOT_JOINED",
+      status: (activeEmails.has(s.email) || activeNames.has(s.name.toLowerCase())) ? "ONLINE_IN_CALL" : "ABSENT_NOT_JOINED",
     }));
 
     state.viewers = Math.max(state.participants.length, 1);
