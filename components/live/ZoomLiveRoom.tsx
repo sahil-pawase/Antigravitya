@@ -38,9 +38,15 @@ interface ZoomLiveRoomProps {
   instructorTitle?: string;
   viewersCount?: number;
   datasetName?: string;
+  activeAttendanceCheck?: any;
+  isAttendanceMarked?: boolean;
+  attendanceMarkedTime?: string;
   onDownloadDataset?: () => void;
   onOpenPoll?: () => void;
   onToggleChat?: () => void;
+  onTriggerAttendance?: () => void;
+  onCloseAttendance?: () => void;
+  onMarkAttendance?: () => void;
 }
 
 const ICE_SERVERS = {
@@ -115,9 +121,15 @@ export function ZoomLiveRoom({
   instructorTitle = "Lead Analytics Architect",
   viewersCount = 5,
   datasetName = "swiggy_orders_dataset.csv",
+  activeAttendanceCheck,
+  isAttendanceMarked,
+  attendanceMarkedTime,
   onDownloadDataset,
   onOpenPoll,
   onToggleChat,
+  onTriggerAttendance,
+  onCloseAttendance,
+  onMarkAttendance,
 }: ZoomLiveRoomProps) {
   // Device & Stream States
   const [isCameraOn, setIsCameraOn] = useState(false);
@@ -1460,6 +1472,41 @@ export function ZoomLiveRoom({
           </div>
         )}
 
+        {/* Student Live Attendance Verification Alert (ONLY appears when Host triggers attendance) */}
+        {mode === "student" && activeAttendanceCheck?.isActive && (
+          <div className="absolute top-16 left-1/2 -translate-x-1/2 w-[92%] sm:w-auto min-w-[340px] max-w-md bg-gradient-to-r from-emerald-950/95 via-[#081827]/95 to-teal-950/95 backdrop-blur-xl border-2 border-emerald-400 p-4 rounded-2xl shadow-2xl z-40 animate-fadeIn space-y-2.5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-emerald-400 font-extrabold text-xs">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
+                <span>📋 LIVE ATTENDANCE VERIFICATION</span>
+              </div>
+              <span className="text-[10px] text-emerald-300 bg-emerald-500/20 px-2 py-0.5 rounded font-mono font-bold">
+                Host Active Check
+              </span>
+            </div>
+            <p className="text-xs text-slate-200">
+              Instructor <strong>{instructorName}</strong> has initiated the live lecture attendance check. Click below to record your presence.
+            </p>
+            <div className="pt-1">
+              {isAttendanceMarked ? (
+                <div className="w-full py-2.5 px-3 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-bold flex items-center justify-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                  <span>✅ Attendance Verified Present ({attendanceMarkedTime || "Recorded"})</span>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={onMarkAttendance}
+                  className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-emerald-400 to-teal-400 hover:from-emerald-300 hover:to-teal-300 text-[#06101D] text-xs font-black flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/30 transition-all cursor-pointer hover:scale-[1.02]"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>✅ Click To Mark Present Now</span>
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Floating Live Reactions */}
         <div className="absolute inset-0 pointer-events-none overflow-hidden z-30">
           {reactions.map((r) => (
@@ -1612,6 +1659,27 @@ export function ZoomLiveRoom({
             >
               <HelpCircle className="w-4 h-4 text-amber-400" />
               <span className="hidden sm:inline">{mode === "instructor" ? "Broadcast Poll" : "Live Poll"}</span>
+            </button>
+          )}
+
+          {/* Host Take Attendance Button */}
+          {mode === "instructor" && onTriggerAttendance && (
+            <button
+              type="button"
+              onClick={activeAttendanceCheck?.isActive ? onCloseAttendance : onTriggerAttendance}
+              className={`px-3 py-2 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-lg ${
+                activeAttendanceCheck?.isActive
+                  ? "bg-emerald-500/25 border-emerald-400 text-emerald-300 shadow-emerald-500/20 animate-pulse"
+                  : "bg-[#081827] border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10"
+              }`}
+              title={activeAttendanceCheck?.isActive ? "Close Live Attendance" : "Trigger Live Attendance Check for all students"}
+            >
+              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+              <span className="hidden sm:inline">
+                {activeAttendanceCheck?.isActive
+                  ? `Attendance (${activeAttendanceCheck.totalPresentCount || 0} Marked)`
+                  : "Take Attendance 📋"}
+              </span>
             </button>
           )}
 

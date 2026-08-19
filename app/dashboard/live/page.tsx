@@ -29,6 +29,8 @@ export default function LiveClassesPage() {
   const [chatInput, setChatInput] = useState("");
   const [isSendingChat, setIsSendingChat] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isAttendanceMarked, setIsAttendanceMarked] = useState(false);
+  const [attendanceMarkedTime, setAttendanceMarkedTime] = useState<string | null>(null);
 
   const fetchLiveSession = async () => {
     try {
@@ -38,6 +40,10 @@ export default function LiveClassesPage() {
         setLiveData(data.state);
         if (data.user && data.state.activePoll?.userVotes?.[data.user.id]) {
           setUserVote(data.state.activePoll.userVotes[data.user.id]);
+        }
+        if (data.user && data.state.activeAttendanceCheck?.markedStudents?.[data.user.id]) {
+          setIsAttendanceMarked(true);
+          setAttendanceMarkedTime(data.state.activeAttendanceCheck.markedStudents[data.user.id].markedAt);
         }
       }
     } catch (err) {
@@ -52,6 +58,26 @@ export default function LiveClassesPage() {
     const interval = setInterval(fetchLiveSession, 3000);
     return () => clearInterval(interval);
   }, []);
+
+  const handleMarkAttendance = async () => {
+    try {
+      const res = await fetch("/api/live-class", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "MARK_ATTENDANCE" }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setIsAttendanceMarked(true);
+        setAttendanceMarkedTime(data.markedRecord?.markedAt || new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
+        fetchLiveSession();
+      } else {
+        alert(data.error || "Attendance verification is currently closed.");
+      }
+    } catch (err) {
+      console.error("Failed to mark attendance:", err);
+    }
+  };
 
   const handleSendChat = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -111,8 +137,54 @@ export default function LiveClassesPage() {
         instructorTitle={liveData?.instructorTitle || "Lead Analytics Architect"}
         viewersCount={liveData?.viewers || 74}
         datasetName={liveData?.datasetName || "swiggy_orders_dataset.csv"}
+        activeAttendanceCheck={liveData?.activeAttendanceCheck}
+        isAttendanceMarked={isAttendanceMarked}
+        attendanceMarkedTime={attendanceMarkedTime || undefined}
+        onMarkAttendance={handleMarkAttendance}
         onDownloadDataset={() => alert("Exercise file: " + (liveData?.datasetName || "dataset.csv") + " has been downloaded to your computer.")}
       />
+
+      {/* 1.5 Dedicated Live Attendance Verification Banner for Students */}
+      {liveData?.activeAttendanceCheck?.isActive && (
+        <div className="p-4 px-6 rounded-2xl bg-gradient-to-r from-emerald-950/60 via-[#081827] to-teal-950/60 border-2 border-emerald-400 shadow-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 animate-fadeIn">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+              <CheckCircle2 className="w-5 h-5 animate-pulse" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h4 className="text-xs font-bold text-white uppercase tracking-wider">
+                  📋 Live Attendance Check Requested
+                </h4>
+                <span className="text-[10px] text-emerald-400 bg-emerald-500/20 px-2 py-0.5 rounded font-mono font-bold">
+                  Active Now
+                </span>
+              </div>
+              <p className="text-xs text-[#94A3B8] mt-0.5">
+                Instructor {liveData?.instructor || "Sahil Pawase"} has enabled real-time attendance verification.
+              </p>
+            </div>
+          </div>
+
+          <div>
+            {isAttendanceMarked ? (
+              <div className="py-2 px-4 rounded-xl bg-emerald-500/20 border border-emerald-400 text-emerald-300 text-xs font-black flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                <span>Verified Present ({attendanceMarkedTime || "Recorded"})</span>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={handleMarkAttendance}
+                className="py-2.5 px-5 rounded-xl bg-gradient-to-r from-emerald-400 to-teal-400 hover:from-emerald-300 hover:to-teal-300 text-[#06101D] text-xs font-black flex items-center gap-2 shadow-lg shadow-emerald-500/30 transition-all cursor-pointer hover:scale-105"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                <span>✅ Mark My Attendance Present</span>
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* 2. Interactive Poll & Q&A Chat Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">

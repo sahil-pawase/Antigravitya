@@ -30,6 +30,15 @@ export interface EnrolledStudent {
   avatar: string;
 }
 
+export interface LiveAttendanceCheck {
+  id: string;
+  isActive: boolean;
+  promptTitle: string;
+  startedAt: string;
+  totalPresentCount: number;
+  markedStudents: Record<string, { studentId: string; studentName: string; markedAt: string }>;
+}
+
 export interface LiveClassState {
   isLive: boolean;
   title: string;
@@ -42,6 +51,7 @@ export interface LiveClassState {
   datasetUrl: string;
   startedAt: string | null;
   viewers: number;
+  activeAttendanceCheck: LiveAttendanceCheck | null;
   activePoll: {
     id: string;
     question: string;
@@ -113,9 +123,14 @@ function getSafeLiveClassState(): LiveClassState {
         { id: "msg-1", sender: "Sahil Pawase (Instructor)", text: "Welcome everyone! Please ensure you have downloaded swiggy_orders_dataset.csv from below.", time: "10:02 AM", isInstructor: true },
       ],
       pinnedNotice: "📢 Class Assignment 2 on Window Functions will be released at 11:30 AM today!",
+      activeAttendanceCheck: null,
       participants: [],
       enrolledStudents: DEFAULT_ENROLLED_STUDENTS,
     };
+  }
+
+  if (global.__liveClassState.activeAttendanceCheck === undefined) {
+    global.__liveClassState.activeAttendanceCheck = null;
   }
 
   // Guard against missing properties from previous hot-reloads
@@ -192,7 +207,7 @@ export async function POST(req: NextRequest) {
     const state = getSafeLiveClassState();
 
     // 1. Admin Actions
-    if (["START_STREAM", "STOP_STREAM", "END_AND_ARCHIVE", "UPDATE_DETAILS", "UPDATE_DATASET", "CREATE_POLL", "END_POLL", "PIN_NOTICE", "MUTE_STUDENT", "LOWER_HAND", "DISMISS_STUDENT", "PING_ABSENT"].includes(action)) {
+    if (["START_STREAM", "STOP_STREAM", "END_AND_ARCHIVE", "UPDATE_DETAILS", "UPDATE_DATASET", "CREATE_POLL", "END_POLL", "PIN_NOTICE", "MUTE_STUDENT", "LOWER_HAND", "DISMISS_STUDENT", "PING_ABSENT", "TRIGGER_ATTENDANCE", "CLOSE_ATTENDANCE"].includes(action)) {
       if (!session || (session.role !== "ADMIN" && session.role !== "INSTRUCTOR")) {
         return NextResponse.json({ error: "Unauthorized: Admin privileges required." }, { status: 403 });
       }
@@ -204,6 +219,20 @@ export async function POST(req: NextRequest) {
         if (body.description) state.description = body.description;
         if (body.datasetName) state.datasetName = body.datasetName;
         if (body.instructor) state.instructor = body.instructor;
+      } else if (action === "TRIGGER_ATTENDANCE") {
+        state.activeAttendanceCheck = {
+          id: "att-" + Date.now(),
+          isActive: true,
+          promptTitle: body.title || "Live Lecture Attendance Verification",
+          startedAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          totalPresentCount: 0,
+          markedStudents: {},
+        };
+        state.pinnedNotice = `📋 ATTENDANCE CHECK OPEN: Please click "Mark Present" now to verify your live attendance!`;
+      } else if (action === "CLOSE_ATTENDANCE") {
+        if (state.activeAttendanceCheck) {
+          state.activeAttendanceCheck.isActive = false;
+        }
       } else if (action === "STOP_STREAM" || action === "END_AND_ARCHIVE") {
         state.isLive = false;
 
@@ -428,6 +457,41 @@ export async function POST(req: NextRequest) {
       }
 
       return NextResponse.json({ success: true, state });
+    }
+
+    // 5. Student Mark Attendance
+    if (action === "MARK_ATTENDANCE") {
+      if (!state.activeAttendanceCheck || !state.activeAttendanceCheck.isActive) {
+        return NextResponse.json({ error: "Attendance verification is currently closed by the instructor." }, { status: 400 });
+      }
+
+      const studentId = session?.id || body.studentId || "stu-" + Date.now();
+      const studentName = session?.fullName || body.studentName || "Student";
+      const markedTime = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+      if (!state.activeAttendanceCheck.markedStudents) {
+        state.activeAttendanceCheck.markedStudents = {};
+      }
+
+      state.activeAttendanceCheck.markedStudents[studentId] = {
+        studentId,
+        studentName,
+        markedAt: markedTime,
+      };
+      state.activeAttendanceCheck.totalPresentCount = Object.keys(state.activeAttendanceCheck.markedStudents).length;
+
+      // Update in live participants
+      const p = state.participants.find((x) => x.id === studentId || x.email === session?.email || x.name.toLowerCase() === studentName.toLowerCase());
+      if (p) {
+        (p as any).isAttendanceMarked = true;
+        (p as any).attendanceMarkedAt = markedTime;
+      }
+
+      return NextResponse.json({
+        success: true,
+        state,
+        markedRecord: state.activeAttendanceCheck.markedStudents[studentId],
+      });
     }
 
     return NextResponse.json({ error: "Invalid action" }, { status: 400 });

@@ -208,6 +208,16 @@ export default function AdminLiveStudioPage() {
   const attendancePct = totalCount > 0 ? Math.round((onlineCount / totalCount) * 100) : 0;
   const handsRaisedCount = participants.filter((p: any) => p && p.isHandRaised).length;
 
+  const handleTriggerAttendance = () => {
+    handleAction("TRIGGER_ATTENDANCE", {
+      title: `Live Class Attendance Check (${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })})`,
+    });
+  };
+
+  const handleCloseAttendance = () => {
+    handleAction("CLOSE_ATTENDANCE");
+  };
+
   return (
     <div className="space-y-6">
       {/* 1. Zoom WebRTC Live Room Viewport */}
@@ -218,8 +228,11 @@ export default function AdminLiveStudioPage() {
         instructorTitle="Lead Analytics Architect & Director"
         viewersCount={onlineCount}
         datasetName={datasetName}
+        activeAttendanceCheck={liveState?.activeAttendanceCheck}
         onDownloadDataset={() => alert("Downloading active exercise dataset: " + datasetName)}
         onOpenPoll={() => setIsPollModalOpen(true)}
+        onTriggerAttendance={handleTriggerAttendance}
+        onCloseAttendance={handleCloseAttendance}
       />
 
       {/* Stream Action Banner */}
@@ -288,16 +301,55 @@ export default function AdminLiveStudioPage() {
             </p>
           </div>
 
-          <button
-            type="button"
-            onClick={() => handleAction("PING_ABSENT")}
-            disabled={isUpdating}
-            className="px-4 py-2 rounded-xl bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20 text-amber-300 font-extrabold text-xs flex items-center gap-2 transition-all cursor-pointer"
-          >
-            <BellRing className="w-4 h-4 text-amber-400 animate-bounce" />
-            <span>Ping All Absent Students 🔔</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={liveState?.activeAttendanceCheck?.isActive ? handleCloseAttendance : handleTriggerAttendance}
+              disabled={isUpdating}
+              className={`px-4 py-2 rounded-xl border font-extrabold text-xs flex items-center gap-2 transition-all cursor-pointer shadow-lg ${
+                liveState?.activeAttendanceCheck?.isActive
+                  ? "bg-emerald-500/20 border-emerald-400 text-emerald-300 shadow-emerald-500/20 animate-pulse"
+                  : "bg-emerald-500/10 border-emerald-500/30 hover:bg-emerald-500/20 text-emerald-300"
+              }`}
+            >
+              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+              <span>
+                {liveState?.activeAttendanceCheck?.isActive
+                  ? `Active Attendance Check (${liveState.activeAttendanceCheck.totalPresentCount || 0} Marked) ✕ Stop`
+                  : "Trigger Live Attendance Check 📋"}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleAction("PING_ABSENT")}
+              disabled={isUpdating}
+              className="px-4 py-2 rounded-xl bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20 text-amber-300 font-extrabold text-xs flex items-center gap-2 transition-all cursor-pointer"
+            >
+              <BellRing className="w-4 h-4 text-amber-400 animate-bounce" />
+              <span className="hidden sm:inline">Ping Absent Students 🔔</span>
+            </button>
+          </div>
         </div>
+
+        {/* Active Attendance Check Live Alert Bar */}
+        {liveState?.activeAttendanceCheck?.isActive && (
+          <div className="p-4 rounded-2xl bg-emerald-950/40 border border-emerald-500/40 text-emerald-300 text-xs flex items-center justify-between shadow-lg animate-fadeIn">
+            <div className="flex items-center gap-2.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
+              <span className="font-bold">
+                Live Attendance Check is ACTIVE for all students ({liveState.activeAttendanceCheck.totalPresentCount} students have marked present).
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={handleCloseAttendance}
+              className="px-3 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-200 text-[11px] font-bold cursor-pointer transition-colors"
+            >
+              Close Attendance Check ✕
+            </button>
+          </div>
+        )}
 
         {/* Real-time KPI Stats Bar */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
