@@ -249,6 +249,12 @@ export default function AdminLiveStudioPage() {
         viewersCount={onlineCount}
         datasetName={datasetName}
         activeAttendanceCheck={liveState?.activeAttendanceCheck}
+        externalParticipants={enrolledStudents.filter((s: any) =>
+          s.status === "ONLINE_IN_CALL" ||
+          s.isAttendanceMarked ||
+          !!markedMap[s.id] ||
+          (liveState?.participants || []).some((p: any) => p.id === s.id || p.email === s.email || p.name?.toLowerCase() === s.name.toLowerCase())
+        )}
         onDownloadDataset={() => alert("Downloading active exercise dataset: " + datasetName)}
         onOpenPoll={() => setIsPollModalOpen(true)}
         onTriggerAttendance={handleTriggerAttendance}

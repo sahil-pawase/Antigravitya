@@ -41,6 +41,7 @@ interface ZoomLiveRoomProps {
   activeAttendanceCheck?: any;
   isAttendanceMarked?: boolean;
   attendanceMarkedTime?: string;
+  externalParticipants?: any[];
   onDownloadDataset?: () => void;
   onOpenPoll?: () => void;
   onToggleChat?: () => void;
@@ -124,6 +125,7 @@ export function ZoomLiveRoom({
   activeAttendanceCheck,
   isAttendanceMarked,
   attendanceMarkedTime,
+  externalParticipants,
   onDownloadDataset,
   onOpenPoll,
   onToggleChat,
@@ -935,6 +937,42 @@ export function ZoomLiveRoom({
       gradient: "from-[#397CFF] to-[#41D8FF]",
     };
 
+    // Combine all student sources: externalParticipants (from parent page), liveParticipants (from heartbeat), and activeAttendanceCheck
+    const allStudentSources = [
+      ...(externalParticipants || []),
+      ...(liveParticipants || []),
+    ];
+
+    // De-duplicate students by id / email / name
+    const seenIds = new Set<string>();
+    const seenNames = new Set<string>();
+    const uniqueStudents: any[] = [];
+
+    for (const p of allStudentSources) {
+      if (!p || p.role === "ADMIN" || p.role === "INSTRUCTOR" || p.name === instructorName || p.name === "You") continue;
+      const idKey = p.id || p.studentId;
+      const nameKey = (p.name || p.studentName || "").toLowerCase();
+      if (!nameKey && !idKey) continue;
+      if (idKey && seenIds.has(idKey)) continue;
+      if (nameKey && seenNames.has(nameKey)) continue;
+
+      if (idKey) seenIds.add(idKey);
+      if (nameKey) seenNames.add(nameKey);
+
+      uniqueStudents.push({
+        id: idKey || `stu-${uniqueStudents.length}`,
+        name: p.name || p.studentName || "Student Participant",
+        role: "Student (Participant)",
+        isSpeaking: p.isSpeaking || (hasRemoteAudio || remoteAudioLevel > 15),
+        isSelf: false,
+        isHost: false,
+        isRemotePeer: true,
+        isHandRaised: p.isHandRaised || false,
+        isAttendanceMarked: p.isAttendanceMarked || false,
+        gradient: "from-blue-600 to-indigo-500",
+      });
+    }
+
     if (mode === "student") {
       const selfTile = {
         id: "stu-self",
@@ -946,40 +984,16 @@ export function ZoomLiveRoom({
         gradient: "from-blue-600 to-indigo-500",
       };
 
-      // Filter out duplicate instructor or self from liveParticipants
-      const otherRealStudents = (liveParticipants || [])
-        .filter((p) => p && p.role === "STUDENT" && p.id !== clientIdRef.current && p.name !== "You")
-        .map((p, idx) => ({
-          id: p.id || `peer-${idx}`,
-          name: p.name,
-          role: "Student (Participant)",
-          isSpeaking: p.isSpeaking || false,
-          isSelf: false,
-          isHost: false,
-          isHandRaised: p.isHandRaised || false,
-          gradient: "from-emerald-600 to-teal-500",
-        }));
+      const otherRealStudents = uniqueStudents.filter(
+        (p) => p.id !== clientIdRef.current && p.name !== "You"
+      );
 
       return [hostTile, selfTile, ...otherRealStudents];
     } else {
       // mode === "instructor"
-      const realStudents = (liveParticipants || [])
-        .filter((p) => p && p.role === "STUDENT")
-        .map((p, idx) => ({
-          id: p.id || `stu-${idx}`,
-          name: p.name || "Student Participant",
-          role: "Student (Participant)",
-          isSpeaking: p.isSpeaking || (hasRemoteAudio || remoteAudioLevel > 15),
-          isSelf: false,
-          isHost: false,
-          isRemotePeer: true,
-          isHandRaised: p.isHandRaised || false,
-          gradient: "from-blue-600 to-indigo-500",
-        }));
-
       // If remote student stream/frame arrived but polling list hasn't updated yet, show 1 real student peer tile
-      if (realStudents.length === 0 && (hasRemoteVideo || !!remoteFrame)) {
-        realStudents.push({
+      if (uniqueStudents.length === 0 && (hasRemoteVideo || !!remoteFrame)) {
+        uniqueStudents.push({
           id: "stu-peer",
           name: "Student Participant",
           role: "Student (Participant)",
@@ -992,9 +1006,9 @@ export function ZoomLiveRoom({
         });
       }
 
-      return [hostTile, ...realStudents];
+      return [hostTile, ...uniqueStudents];
     }
-  }, [mode, instructorName, isMicOn, audioLevel, hasRemoteAudio, remoteAudioLevel, liveParticipants, hasRemoteVideo, remoteFrame]);
+  }, [mode, instructorName, isMicOn, audioLevel, hasRemoteAudio, remoteAudioLevel, liveParticipants, externalParticipants, hasRemoteVideo, remoteFrame]);
 
   return (
     <div
