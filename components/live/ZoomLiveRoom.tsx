@@ -950,6 +950,7 @@ export function ZoomLiveRoom({
 
     for (const p of allStudentSources) {
       if (!p || p.role === "ADMIN" || p.role === "INSTRUCTOR" || p.name === instructorName || p.name === "You") continue;
+      if (p.status && p.status !== "ONLINE_IN_CALL") continue;
       const idKey = p.id || p.studentId;
       const nameKey = (p.name || p.studentName || "").toLowerCase();
       if (!nameKey && !idKey) continue;

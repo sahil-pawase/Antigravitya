@@ -32,6 +32,7 @@ import {
   Hand,
   Search,
   Filter,
+  LogOut,
 } from "lucide-react";
 import { Button } from "@/ui/Button";
 import { Input, Textarea } from "@/ui/Input";
@@ -190,12 +191,7 @@ export default function AdminLiveStudioPage() {
   const verifiedList = Object.values(markedMap);
   const verifiedCount = verifiedList.length;
 
-  const onlineCount = enrolledStudents.filter((s: any) =>
-    s.status === "ONLINE_IN_CALL" ||
-    s.isAttendanceMarked ||
-    !!markedMap[s.id] ||
-    Object.values(markedMap).some((m: any) => m.studentId === s.id || m.studentName?.toLowerCase() === s.name.toLowerCase() || s.name.toLowerCase().includes(m.studentName?.toLowerCase() || "___"))
-  ).length;
+  const onlineCount = enrolledStudents.filter((s: any) => s.status === "ONLINE_IN_CALL").length;
 
   const totalCount = enrolledStudents.length;
   const absentCount = Math.max(0, totalCount - onlineCount);
@@ -210,7 +206,7 @@ export default function AdminLiveStudioPage() {
         m.studentName?.toLowerCase() === student.name.toLowerCase() ||
         (m.studentName && student.name.toLowerCase().includes(m.studentName.toLowerCase()))
       );
-    const isOnline = student.status === "ONLINE_IN_CALL" || isMarked;
+    const isOnline = student.status === "ONLINE_IN_CALL";
 
     if (studentFilter === "ONLINE" && !isOnline) return false;
     if (studentFilter === "VERIFIED" && !isMarked) return false;
@@ -249,12 +245,7 @@ export default function AdminLiveStudioPage() {
         viewersCount={onlineCount}
         datasetName={datasetName}
         activeAttendanceCheck={liveState?.activeAttendanceCheck}
-        externalParticipants={enrolledStudents.filter((s: any) =>
-          s.status === "ONLINE_IN_CALL" ||
-          s.isAttendanceMarked ||
-          !!markedMap[s.id] ||
-          (liveState?.participants || []).some((p: any) => p.id === s.id || p.email === s.email || p.name?.toLowerCase() === s.name.toLowerCase())
-        )}
+        externalParticipants={enrolledStudents.filter((s: any) => s.status === "ONLINE_IN_CALL")}
         onDownloadDataset={() => alert("Downloading active exercise dataset: " + datasetName)}
         onOpenPoll={() => setIsPollModalOpen(true)}
         onTriggerAttendance={handleTriggerAttendance}
@@ -523,7 +514,8 @@ export default function AdminLiveStudioPage() {
                       (m.studentName && m.studentName.toLowerCase().includes(student.name.toLowerCase()))
                     );
 
-                  const isOnline = student.status === "ONLINE_IN_CALL" || isMarked || studentFilter === "ONLINE" || studentFilter === "VERIFIED";
+                  const isOnline = student.status === "ONLINE_IN_CALL";
+                  const isLeft = student.status === "LEFT_CALL";
                   const isCam = !!student.isCameraOn;
                   const isMic = !!student.isMicOn;
                   const isHand = !!student.isHandRaised;
@@ -558,6 +550,11 @@ export default function AdminLiveStudioPage() {
                           <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-500/10 border border-blue-500/30 text-[#41D8FF] font-bold text-[11px]">
                             <span className="w-2 h-2 rounded-full bg-blue-400 animate-ping" />
                             <span>IN CALL ({joinedTime})</span>
+                          </div>
+                        ) : isLeft ? (
+                          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 font-semibold text-[11px]">
+                            <LogOut className="w-3.5 h-3.5" />
+                            <span>LEFT CALL</span>
                           </div>
                         ) : (
                           <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400 font-semibold text-[11px]">

@@ -26,7 +26,7 @@ export interface EnrolledStudent {
   name: string;
   email: string;
   cohort: string;
-  status: "ONLINE_IN_CALL" | "ABSENT_NOT_JOINED";
+  status: "ONLINE_IN_CALL" | "LEFT_CALL" | "ABSENT_NOT_JOINED";
   avatar: string;
 }
 
@@ -79,12 +79,12 @@ declare global {
 }
 
 const DEFAULT_ENROLLED_STUDENTS: EnrolledStudent[] = [
-  { id: "stu-sahil", name: "Sahil Bhimashankar Pawase", email: "pawasesahil2@gmail.com", cohort: "Cohort 14 (Data Analytics)", status: "ONLINE_IN_CALL", avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Sahil" },
-  { id: "stu-1", name: "Neha Gupta", email: "neha.gupta@careertransformer.in", cohort: "Cohort 14 (Data Analytics)", status: "ONLINE_IN_CALL", avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Neha" },
-  { id: "stu-2", name: "Rohan Verma", email: "rohan.verma@careertransformer.in", cohort: "Cohort 14 (Data Analytics)", status: "ONLINE_IN_CALL", avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Rohan" },
-  { id: "stu-3", name: "Priya Sharma", email: "priya.s@careertransformer.in", cohort: "Cohort 14 (Data Analytics)", status: "ONLINE_IN_CALL", avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Priya" },
-  { id: "stu-4", name: "Aarav Patel", email: "aarav.p@careertransformer.in", cohort: "Cohort 14 (Data Analytics)", status: "ONLINE_IN_CALL", avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Aarav" },
-  { id: "stu-5", name: "Ananya Roy", email: "ananya.roy@careertransformer.in", cohort: "Cohort 14 (Data Analytics)", status: "ONLINE_IN_CALL", avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Ananya" },
+  { id: "stu-sahil", name: "Sahil Bhimashankar Pawase", email: "pawasesahil2@gmail.com", cohort: "Cohort 14 (Data Analytics)", status: "ABSENT_NOT_JOINED", avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Sahil" },
+  { id: "stu-1", name: "Neha Gupta", email: "neha.gupta@careertransformer.in", cohort: "Cohort 14 (Data Analytics)", status: "ABSENT_NOT_JOINED", avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Neha" },
+  { id: "stu-2", name: "Rohan Verma", email: "rohan.verma@careertransformer.in", cohort: "Cohort 14 (Data Analytics)", status: "ABSENT_NOT_JOINED", avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Rohan" },
+  { id: "stu-3", name: "Priya Sharma", email: "priya.s@careertransformer.in", cohort: "Cohort 14 (Data Analytics)", status: "ABSENT_NOT_JOINED", avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Priya" },
+  { id: "stu-4", name: "Aarav Patel", email: "aarav.p@careertransformer.in", cohort: "Cohort 14 (Data Analytics)", status: "ABSENT_NOT_JOINED", avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Aarav" },
+  { id: "stu-5", name: "Ananya Roy", email: "ananya.roy@careertransformer.in", cohort: "Cohort 14 (Data Analytics)", status: "ABSENT_NOT_JOINED", avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Ananya" },
   { id: "stu-6", name: "Vikram Malhotra", email: "vikram.m@careertransformer.in", cohort: "Cohort 14 (Data Analytics)", status: "ABSENT_NOT_JOINED", avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Vikram" },
   { id: "stu-7", name: "Sneha Reddy", email: "sneha.reddy@careertransformer.in", cohort: "Cohort 14 (Data Analytics)", status: "ABSENT_NOT_JOINED", avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Sneha" },
   { id: "stu-8", name: "Kunal Joshi", email: "kunal.j@careertransformer.in", cohort: "Cohort 14 (Data Analytics)", status: "ABSENT_NOT_JOINED", avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Kunal" },
@@ -145,7 +145,7 @@ function getSafeLiveClassState(): LiveClassState {
     global.__liveClassState.chatMessages = [];
   }
 
-  // De-duplicate participants and filter out stale sessions older than 90 seconds
+  // De-duplicate participants and filter out stale sessions older than 20 seconds
   const now = Date.now();
   const seenIds = new Set<string>();
   const seenEmails = new Set<string>();
@@ -153,9 +153,8 @@ function getSafeLiveClassState(): LiveClassState {
 
   for (const p of global.__liveClassState.participants) {
     if (!p || !p.id) continue;
-    // Don't purge if marked attendance or active within 90s
-    const isMarked = global.__liveClassState.activeAttendanceCheck?.markedStudents?.[p.id];
-    if (!isMarked && now - p.lastPing > 90000) continue;
+    // Active ONLY if pinged within last 20 seconds
+    if (now - p.lastPing > 20000) continue;
     if (seenIds.has(p.id)) continue;
     if (p.email && seenEmails.has(p.email)) continue;
 
@@ -192,15 +191,22 @@ export async function GET(req: NextRequest) {
 
       const isMarked = !!attendanceRecord;
 
-      const isOnline = isMarked ||
-        activeIds.has(s.id) ||
+      // Online ONLY if currently active in live participants
+      const isOnline = activeIds.has(s.id) ||
         (s.email && activeEmails.has(s.email.toLowerCase())) ||
         (s.name && activeNames.has(s.name.toLowerCase())) ||
         Array.from(activeNames).some((an) => an.includes(s.name.toLowerCase()) || s.name.toLowerCase().includes(an));
 
+      let status: "ONLINE_IN_CALL" | "LEFT_CALL" | "ABSENT_NOT_JOINED" = "ABSENT_NOT_JOINED";
+      if (isOnline) {
+        status = "ONLINE_IN_CALL";
+      } else if (isMarked) {
+        status = "LEFT_CALL";
+      }
+
       return {
         ...s,
-        status: isOnline ? "ONLINE_IN_CALL" : "ABSENT_NOT_JOINED",
+        status,
         isAttendanceMarked: isMarked,
         attendanceMarkedAt: attendanceRecord?.markedAt || (isMarked ? "Marked Present" : null),
       };
@@ -404,9 +410,16 @@ export async function POST(req: NextRequest) {
 
     if (action === "LEAVE_CALL") {
       const userId = session?.id || body.userId;
-      if (userId) {
-        state.participants = state.participants.filter((p) => p.id !== userId);
-      }
+      const userEmail = session?.email || body.email;
+      const userName = session?.fullName || body.name;
+
+      state.participants = state.participants.filter((p) => {
+        if (userId && p.id === userId) return false;
+        if (userEmail && p.email?.toLowerCase() === userEmail.toLowerCase()) return false;
+        if (userName && p.name?.toLowerCase() === userName.toLowerCase()) return false;
+        return true;
+      });
+
       state.viewers = Math.max(state.participants.length, 1);
       return NextResponse.json({ success: true, state });
     }

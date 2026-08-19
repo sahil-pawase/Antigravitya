@@ -140,7 +140,7 @@ export default function LiveClassesPage() {
         activeAttendanceCheck={liveData?.activeAttendanceCheck}
         isAttendanceMarked={isAttendanceMarked}
         attendanceMarkedTime={attendanceMarkedTime || undefined}
-        externalParticipants={liveData?.enrolledStudents?.filter((s: any) => s.status === "ONLINE_IN_CALL" || s.isAttendanceMarked)}
+        externalParticipants={liveData?.enrolledStudents?.filter((s: any) => s.status === "ONLINE_IN_CALL")}
         onMarkAttendance={handleMarkAttendance}
         onDownloadDataset={() => alert("Exercise file: " + (liveData?.datasetName || "dataset.csv") + " has been downloaded to your computer.")}
       />
