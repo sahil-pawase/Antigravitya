@@ -155,6 +155,7 @@ export function ZoomLiveRoom({
   // Live Connected Participants
   const [liveParticipants, setLiveParticipants] = useState<any[]>([]);
   const [isParticipantsModalOpen, setIsParticipantsModalOpen] = useState(false);
+  const [isAttendanceModalOpen, setIsAttendanceModalOpen] = useState(false);
 
   // WebRTC Client ID
   const clientIdRef = useRef<string>(
@@ -1683,6 +1684,43 @@ export function ZoomLiveRoom({
             </button>
           )}
 
+          {/* Student Mark Attendance Button */}
+          {mode === "student" && (
+            <button
+              type="button"
+              onClick={() => {
+                if (activeAttendanceCheck?.isActive && !isAttendanceMarked && onMarkAttendance) {
+                  onMarkAttendance();
+                } else {
+                  setIsAttendanceModalOpen(true);
+                }
+              }}
+              className={`px-3 py-2 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-lg ${
+                isAttendanceMarked
+                  ? "bg-emerald-500/20 border-emerald-400 text-emerald-300"
+                  : activeAttendanceCheck?.isActive
+                  ? "bg-gradient-to-r from-emerald-500 to-teal-500 text-[#06101D] border-emerald-300 font-extrabold animate-bounce shadow-emerald-500/40"
+                  : "bg-[#081827] border-[#162942] text-[#94A3B8] hover:text-white"
+              }`}
+              title={
+                isAttendanceMarked
+                  ? "Attendance: Verified Present"
+                  : activeAttendanceCheck?.isActive
+                  ? "Click to Mark Live Attendance Now!"
+                  : "Attendance Verification (Controlled by Instructor)"
+              }
+            >
+              <CheckCircle2 className={`w-4 h-4 ${isAttendanceMarked ? "text-emerald-400" : activeAttendanceCheck?.isActive ? "text-[#06101D]" : "text-[#64748B]"}`} />
+              <span className="hidden sm:inline">
+                {isAttendanceMarked
+                  ? "Attendance: Present ✅"
+                  : activeAttendanceCheck?.isActive
+                  ? "Mark Attendance 📋 (Open!)"
+                  : "Attendance 📋"}
+              </span>
+            </button>
+          )}
+
           {onToggleChat && (
             <button
               type="button"
@@ -1798,6 +1836,75 @@ export function ZoomLiveRoom({
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* 6. Live Attendance Drawer Modal (Student View) */}
+      {isAttendanceModalOpen && (
+        <div className="p-4 bg-[#06101D] border-t border-emerald-500/40 z-20 animate-fadeIn">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+              <span className="text-xs font-bold text-white">Live Lecture Attendance Verification</span>
+              <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 text-[10px] font-bold">
+                {activeAttendanceCheck?.isActive ? "Active Now 🟢" : "Controlled by Host 🔒"}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsAttendanceModalOpen(false)}
+              className="text-[#94A3B8] hover:text-white text-xs cursor-pointer font-bold"
+            >
+              ✕ Close
+            </button>
+          </div>
+
+          <div className="p-4 rounded-2xl bg-[#081827] border border-[#162942] space-y-3">
+            {isAttendanceMarked ? (
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center flex-shrink-0">
+                  <CheckCircle2 className="w-6 h-6 text-emerald-400" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-extrabold text-emerald-300">Attendance Recorded & Verified! ✅</h4>
+                  <p className="text-[11px] text-[#94A3B8]">
+                    Your presence has been recorded at <strong>{attendanceMarkedTime || "Class Time"}</strong> and synced with Instructor {instructorName}.
+                  </p>
+                </div>
+              </div>
+            ) : activeAttendanceCheck?.isActive ? (
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-white">Instructor Requested Attendance</span>
+                  <span className="text-[10px] text-emerald-400 font-mono font-bold">
+                    {activeAttendanceCheck.totalPresentCount || 0} Students Marked
+                  </span>
+                </div>
+                <p className="text-xs text-[#94A3B8]">
+                  Click the button below to confirm your live participation in this masterclass.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (onMarkAttendance) onMarkAttendance();
+                  }}
+                  className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-emerald-400 to-teal-400 hover:from-emerald-300 hover:to-teal-300 text-[#06101D] text-xs font-black flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/30 transition-all cursor-pointer hover:scale-[1.01]"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>✅ Click Here to Mark My Attendance Present Now</span>
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-2 text-slate-300 text-xs font-bold">
+                  <span>🔒 Attendance Verification is Currently Locked</span>
+                </div>
+                <p className="text-xs text-[#94A3B8]">
+                  Instructor <strong>{instructorName}</strong> triggers live attendance verification during the lecture. When initiated, this button will alert you to mark your attendance with a single click.
+                </p>
+              </div>
+            )}
           </div>
         </div>
       )}
