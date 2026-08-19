@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   Mic,
   MicOff,
@@ -23,18 +23,18 @@ import {
   Square,
   Play,
   Share2,
-  Download,
-  AlertCircle,
   CheckCircle2,
+  AlertCircle,
+  Download,
   Camera,
-  Film,
+  Hand,
+  PhoneOff,
 } from "lucide-react";
-import { Button } from "@/ui/Button";
 
 interface ZoomLiveRoomProps {
-  mode: "instructor" | "student";
-  streamTitle: string;
-  instructorName: string;
+  mode?: "student" | "instructor";
+  streamTitle?: string;
+  instructorName?: string;
   instructorTitle?: string;
   viewersCount?: number;
   datasetName?: string;
@@ -45,10 +45,10 @@ interface ZoomLiveRoomProps {
 
 export function ZoomLiveRoom({
   mode = "student",
-  streamTitle,
-  instructorName,
+  streamTitle = "Mastering Real-Time SQL Queries & Window Functions",
+  instructorName = "Sahil Pawase",
   instructorTitle = "Lead Analytics Architect",
-  viewersCount = 74,
+  viewersCount = 5,
   datasetName = "swiggy_orders_dataset.csv",
   onDownloadDataset,
   onOpenPoll,
@@ -63,46 +63,103 @@ export function ZoomLiveRoom({
   const [layoutMode, setLayoutMode] = useState<"speaker" | "gallery">("speaker");
   const [audioLevel, setAudioLevel] = useState(0);
   const [permissionError, setPermissionError] = useState<string | null>(null);
-  const [recordingSeconds, setRecordingSeconds] = useState(1340); // 22 mins
+  const [recordingSeconds, setRecordingSeconds] = useState(1340);
   const [isHandRaised, setIsHandRaised] = useState(false);
   const [reactions, setReactions] = useState<Array<{ id: number; emoji: string; left: number }>>([]);
   const [handRaiseNotice, setHandRaiseNotice] = useState<string | null>(null);
 
+  // Live Connected Participants
+  const [liveParticipants, setLiveParticipants] = useState<any[]>([]);
+  const [isParticipantsModalOpen, setIsParticipantsModalOpen] = useState(false);
+
+  // Mutable state refs to prevent useEffect teardown loops
+  const isCameraOnRef = useRef(false);
+  const isMicOnRef = useRef(false);
+  const isHandRaisedRef = useRef(false);
+  const audioLevelRef = useRef(0);
+  const isMountedRef = useRef(true);
+
   // Stream Refs
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
+  const studentSelfVideoRef = useRef<HTMLVideoElement | null>(null);
   const screenVideoRef = useRef<HTMLVideoElement | null>(null);
-  const mediaStreamRef = useRef<MediaStream | null>(null);
+
+  const videoStreamRef = useRef<MediaStream | null>(null);
+  const audioStreamRef = useRef<MediaStream | null>(null);
   const screenStreamRef = useRef<MediaStream | null>(null);
+
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animFrameRef = useRef<number | null>(null);
   const roomContainerRef = useRef<HTMLDivElement | null>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const recordedChunksRef = useRef<Blob[]>([]);
 
   // BroadcastChannel for cross-tab sync
   const channelRef = useRef<BroadcastChannel | null>(null);
 
-  // Callback ref to guarantee stream is attached whenever video element mounts
-  const setLocalVideo = (el: HTMLVideoElement | null) => {
-    localVideoRef.current = el;
-    if (el && mediaStreamRef.current) {
-      if (el.srcObject !== mediaStreamRef.current) {
-        el.srcObject = mediaStreamRef.current;
-        el.play().catch((e) => console.warn("Video play error:", e));
-      }
-    }
-  };
+  // Keep state refs synced
+  useEffect(() => {
+    isCameraOnRef.current = isCameraOn;
+  }, [isCameraOn]);
 
-  const setScreenVideo = (el: HTMLVideoElement | null) => {
-    screenVideoRef.current = el;
-    if (el && screenStreamRef.current) {
-      if (el.srcObject !== screenStreamRef.current) {
-        el.srcObject = screenStreamRef.current;
-        el.play().catch((e) => console.warn("Screen video play error:", e));
+  useEffect(() => {
+    isMicOnRef.current = isMicOn;
+  }, [isMicOn]);
+
+  useEffect(() => {
+    isHandRaisedRef.current = isHandRaised;
+  }, [isHandRaised]);
+
+  useEffect(() => {
+    audioLevelRef.current = audioLevel;
+  }, [audioLevel]);
+
+  // Callback ref to attach active video stream whenever a video element mounts
+  const attachVideoStream = useCallback((el: HTMLVideoElement | null) => {
+    if (el) {
+      localVideoRef.current = el;
+      if (videoStreamRef.current) {
+        if (el.srcObject !== videoStreamRef.current) {
+          el.srcObject = videoStreamRef.current;
+        }
+        el.play().catch(() => {});
       }
     }
-  };
+  }, []);
+
+  const attachStudentSelfVideo = useCallback((el: HTMLVideoElement | null) => {
+    if (el) {
+      studentSelfVideoRef.current = el;
+      if (videoStreamRef.current) {
+        if (el.srcObject !== videoStreamRef.current) {
+          el.srcObject = videoStreamRef.current;
+        }
+        el.play().catch(() => {});
+      }
+    }
+  }, []);
+
+  const attachScreenStream = useCallback((el: HTMLVideoElement | null) => {
+    if (el) {
+      screenVideoRef.current = el;
+      if (screenStreamRef.current) {
+        if (el.srcObject !== screenStreamRef.current) {
+          el.srcObject = screenStreamRef.current;
+        }
+        el.play().catch(() => {});
+      }
+    }
+  }, []);
+
+  const broadcastState = useCallback((data: any) => {
+    if (channelRef.current && mode === "instructor") {
+      try {
+        channelRef.current.postMessage({
+          type: "INSTRUCTOR_STREAM_STATE",
+          data,
+        });
+      } catch (e) {}
+    }
+  }, [mode]);
 
   const sendReaction = (emoji: string) => {
     const newReaction = {
@@ -116,142 +173,80 @@ export function ZoomLiveRoom({
     }, 2500);
 
     if (channelRef.current) {
-      channelRef.current.postMessage({
-        type: "REACTION",
-        emoji,
-      });
+      try {
+        channelRef.current.postMessage({
+          type: "REACTION",
+          emoji,
+        });
+      } catch (e) {}
     }
   };
 
   const toggleHandRaise = () => {
     const next = !isHandRaised;
     setIsHandRaised(next);
+    isHandRaisedRef.current = next;
+
     if (next) {
       setHandRaiseNotice("✋ You raised your hand! The instructor will invite you to speak.");
       setTimeout(() => setHandRaiseNotice(null), 4000);
     }
     if (channelRef.current) {
-      channelRef.current.postMessage({
-        type: "HAND_RAISE",
-        isRaised: next,
-        studentName: mode === "student" ? "Student" : instructorName,
-      });
-    }
-  };
-
-  // Dynamic connected participants state
-  const [liveParticipants, setLiveParticipants] = useState<any[]>([]);
-  const [isParticipantsModalOpen, setIsParticipantsModalOpen] = useState(false);
-
-  useEffect(() => {
-    try {
-      channelRef.current = new BroadcastChannel("career_transformer_zoom_room");
-      channelRef.current.onmessage = (event) => {
-        const { type, data, emoji, isRaised, studentName } = event.data || {};
-        if (type === "INSTRUCTOR_STREAM_STATE" && mode === "student") {
-          if (data?.isCameraOn !== undefined) setIsCameraOn(data.isCameraOn);
-          if (data?.isScreenSharing !== undefined) setIsScreenSharing(data.isScreenSharing);
-          if (data?.isMicOn !== undefined) setIsMicOn(data.isMicOn);
-        } else if (type === "REACTION" && emoji) {
-          const newReaction = {
-            id: Date.now() + Math.random(),
-            emoji,
-            left: 10 + Math.random() * 80,
-          };
-          setReactions((prev) => [...prev, newReaction]);
-          setTimeout(() => {
-            setReactions((prev) => prev.filter((r) => r.id !== newReaction.id));
-          }, 2500);
-        } else if (type === "HAND_RAISE" && mode === "instructor" && isRaised) {
-          setHandRaiseNotice(`✋ ${studentName || "A student"} raised their hand to ask a question!`);
-          setTimeout(() => setHandRaiseNotice(null), 5000);
-        }
-      };
-    } catch (e) {
-      console.warn("BroadcastChannel not supported");
-    }
-
-    // Register Call Presence via API
-    const joinCallApi = async () => {
       try {
-        const res = await fetch("/api/live-class", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            action: "JOIN_CALL",
-            isCameraOn,
-            isMicOn,
-            isHandRaised,
-          }),
+        channelRef.current.postMessage({
+          type: "HAND_RAISE",
+          isRaised: next,
+          studentName: mode === "student" ? "Student" : instructorName,
         });
-        const data = await res.json();
-        if (data.success && data.state?.participants) {
-          setLiveParticipants(data.state.participants);
-        }
-      } catch (e) {
-        console.warn("Join call API error:", e);
-      }
-    };
-
-    joinCallApi();
-
-    // Heartbeat & Telemetry Sync Loop
-    const heartbeatInterval = setInterval(async () => {
-      try {
-        const res = await fetch("/api/live-class", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            action: "HEARTBEAT",
-            isCameraOn,
-            isMicOn,
-            isHandRaised,
-            isSpeaking: isMicOn && audioLevel > 15,
-          }),
-        });
-        const data = await res.json();
-        if (data.success && data.state?.participants) {
-          setLiveParticipants(data.state.participants);
-        }
-      } catch (e) {
-        // Quiet heartbeat error
-      }
-    }, 4000);
-
-    const timer = setInterval(() => {
-      setRecordingSeconds((prev) => prev + 1);
-    }, 1000);
-
-    return () => {
-      clearInterval(timer);
-      clearInterval(heartbeatInterval);
-      stopMediaTracks();
-
-      // Notify server of leave
-      try {
-        fetch("/api/live-class", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "LEAVE_CALL" }),
-          keepalive: true,
-        }).catch(() => {});
       } catch (e) {}
-
-      if (channelRef.current) channelRef.current.close();
-      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
-    };
-  }, [mode, isCameraOn, isMicOn, isHandRaised, audioLevel]);
-
-  const formatTime = (secs: number) => {
-    const m = Math.floor(secs / 60).toString().padStart(2, "0");
-    const s = (secs % 60).toString().padStart(2, "0");
-    return `${m}:${s}`;
+    }
   };
 
-  const stopMediaTracks = () => {
-    if (mediaStreamRef.current) {
-      mediaStreamRef.current.getTracks().forEach((t) => t.stop());
-      mediaStreamRef.current = null;
+  // Audio Analyser Setup
+  const setupAudioAnalyser = (stream: MediaStream) => {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      audioContextRef.current = ctx;
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 64;
+      analyserRef.current = analyser;
+
+      const source = ctx.createMediaStreamSource(stream);
+      source.connect(analyser);
+
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+      const checkVolume = () => {
+        if (!analyserRef.current || !isMountedRef.current) return;
+        analyserRef.current.getByteFrequencyData(dataArray);
+        let sum = 0;
+        for (let i = 0; i < dataArray.length; i++) {
+          sum += dataArray[i];
+        }
+        const avg = sum / dataArray.length;
+        const level = Math.min(100, Math.round((avg / 128) * 100));
+        setAudioLevel(level);
+        audioLevelRef.current = level;
+        animFrameRef.current = requestAnimationFrame(checkVolume);
+      };
+
+      checkVolume();
+    } catch (e) {
+      console.warn("Audio visualizer skipped", e);
+    }
+  };
+
+  // Stop Media Helper
+  const stopMediaTracks = useCallback(() => {
+    if (videoStreamRef.current) {
+      videoStreamRef.current.getTracks().forEach((t) => t.stop());
+      videoStreamRef.current = null;
+    }
+    if (audioStreamRef.current) {
+      audioStreamRef.current.getTracks().forEach((t) => t.stop());
+      audioStreamRef.current = null;
     }
     if (screenStreamRef.current) {
       screenStreamRef.current.getTracks().forEach((t) => t.stop());
@@ -261,22 +256,25 @@ export function ZoomLiveRoom({
       audioContextRef.current.close().catch(() => {});
       audioContextRef.current = null;
     }
-  };
+    if (animFrameRef.current) {
+      cancelAnimationFrame(animFrameRef.current);
+      animFrameRef.current = null;
+    }
+  }, []);
 
   // 1. Toggle Camera (Webcam)
   const toggleCamera = async () => {
     setPermissionError(null);
 
     if (isCameraOn) {
-      if (mediaStreamRef.current) {
-        const videoTracks = mediaStreamRef.current.getVideoTracks();
-        videoTracks.forEach((t) => {
-          t.stop();
-          mediaStreamRef.current?.removeTrack(t);
-        });
+      if (videoStreamRef.current) {
+        videoStreamRef.current.getTracks().forEach((t) => t.stop());
+        videoStreamRef.current = null;
       }
       setIsCameraOn(false);
+      isCameraOnRef.current = false;
       if (localVideoRef.current) localVideoRef.current.srcObject = null;
+      if (studentSelfVideoRef.current) studentSelfVideoRef.current.srcObject = null;
       broadcastState({ isCameraOn: false });
     } else {
       try {
@@ -286,24 +284,24 @@ export function ZoomLiveRoom({
             height: { ideal: 720 },
             facingMode: "user",
           },
-          audio: isMicOn,
         });
 
-        mediaStreamRef.current = stream;
+        videoStreamRef.current = stream;
         setIsCameraOn(true);
+        isCameraOnRef.current = true;
         broadcastState({ isCameraOn: true });
 
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = stream;
           localVideoRef.current.play().catch(() => {});
         }
-
-        if (isMicOn) {
-          setupAudioAnalyser(stream);
+        if (studentSelfVideoRef.current) {
+          studentSelfVideoRef.current.srcObject = stream;
+          studentSelfVideoRef.current.play().catch(() => {});
         }
       } catch (err: any) {
         console.error("Camera access error:", err);
-        setPermissionError("Camera access denied or webcam in use by another application.");
+        setPermissionError("Camera access denied or webcam is in use by another application.");
       }
     }
   };
@@ -313,30 +311,44 @@ export function ZoomLiveRoom({
     setPermissionError(null);
 
     if (isMicOn) {
-      if (mediaStreamRef.current) {
-        mediaStreamRef.current.getAudioTracks().forEach((t) => {
+      if (audioStreamRef.current) {
+        audioStreamRef.current.getAudioTracks().forEach((t) => {
           t.enabled = false;
           t.stop();
         });
+        audioStreamRef.current = null;
+      }
+      if (audioContextRef.current) {
+        audioContextRef.current.close().catch(() => {});
+        audioContextRef.current = null;
+      }
+      if (animFrameRef.current) {
+        cancelAnimationFrame(animFrameRef.current);
+        animFrameRef.current = null;
       }
       setIsMicOn(false);
+      isMicOnRef.current = false;
       setAudioLevel(0);
+      audioLevelRef.current = 0;
       broadcastState({ isMicOn: false });
     } else {
       try {
-        const audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        if (mediaStreamRef.current) {
-          audioStream.getAudioTracks().forEach((t) => mediaStreamRef.current?.addTrack(t));
-        } else {
-          mediaStreamRef.current = audioStream;
-        }
+        const audioStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+        });
 
+        audioStreamRef.current = audioStream;
         setIsMicOn(true);
+        isMicOnRef.current = true;
         setupAudioAnalyser(audioStream);
         broadcastState({ isMicOn: true });
       } catch (err: any) {
         console.error("Microphone access error:", err);
-        setPermissionError("Microphone access denied. Please allow microphone permissions.");
+        setPermissionError("Microphone access denied. Please allow microphone permissions in your browser.");
       }
     }
   };
@@ -380,46 +392,102 @@ export function ZoomLiveRoom({
     }
   };
 
-  const setupAudioAnalyser = (stream: MediaStream) => {
+  // Mount/Unmount Lifecycle & Heartbeat Loop
+  useEffect(() => {
+    isMountedRef.current = true;
+
     try {
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      const ctx = new AudioCtx();
-      audioContextRef.current = ctx;
-      const analyser = ctx.createAnalyser();
-      analyser.fftSize = 64;
-      analyserRef.current = analyser;
-
-      const source = ctx.createMediaStreamSource(stream);
-      source.connect(analyser);
-
-      const dataArray = new Uint8Array(analyser.frequencyBinCount);
-
-      const checkVolume = () => {
-        if (!analyserRef.current) return;
-        analyserRef.current.getByteFrequencyData(dataArray);
-        let sum = 0;
-        for (let i = 0; i < dataArray.length; i++) {
-          sum += dataArray[i];
+      channelRef.current = new BroadcastChannel("career_transformer_zoom_room");
+      channelRef.current.onmessage = (event) => {
+        const { type, data, emoji, isRaised, studentName } = event.data || {};
+        if (type === "INSTRUCTOR_STREAM_STATE" && mode === "student") {
+          if (data?.isCameraOn !== undefined) setIsCameraOn(data.isCameraOn);
+          if (data?.isScreenSharing !== undefined) setIsScreenSharing(data.isScreenSharing);
+          if (data?.isMicOn !== undefined) setIsMicOn(data.isMicOn);
+        } else if (type === "REACTION" && emoji) {
+          const newReaction = {
+            id: Date.now() + Math.random(),
+            emoji,
+            left: 10 + Math.random() * 80,
+          };
+          setReactions((prev) => [...prev, newReaction]);
+          setTimeout(() => {
+            setReactions((prev) => prev.filter((r) => r.id !== newReaction.id));
+          }, 2500);
+        } else if (type === "HAND_RAISE" && mode === "instructor" && isRaised) {
+          setHandRaiseNotice(`✋ ${studentName || "A student"} raised their hand to ask a question!`);
+          setTimeout(() => setHandRaiseNotice(null), 5000);
         }
-        const avg = sum / dataArray.length;
-        setAudioLevel(Math.min(100, Math.round((avg / 128) * 100)));
-        animFrameRef.current = requestAnimationFrame(checkVolume);
       };
-
-      checkVolume();
     } catch (e) {
-      console.warn("Audio visualizer skipped", e);
+      console.warn("BroadcastChannel not supported");
     }
-  };
 
-  const broadcastState = (data: any) => {
-    if (channelRef.current && mode === "instructor") {
-      channelRef.current.postMessage({
-        type: "INSTRUCTOR_STREAM_STATE",
-        data,
-      });
-    }
-  };
+    // Register Call Presence
+    const joinCall = async () => {
+      try {
+        const res = await fetch("/api/live-class", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "JOIN_CALL",
+            isCameraOn: isCameraOnRef.current,
+            isMicOn: isMicOnRef.current,
+            isHandRaised: isHandRaisedRef.current,
+          }),
+        });
+        const data = await res.json();
+        if (data.success && data.state?.participants) {
+          setLiveParticipants(data.state.participants);
+        }
+      } catch (e) {}
+    };
+
+    joinCall();
+
+    // Heartbeat Loop (every 4s)
+    const heartbeatInterval = setInterval(async () => {
+      try {
+        const res = await fetch("/api/live-class", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "HEARTBEAT",
+            isCameraOn: isCameraOnRef.current,
+            isMicOn: isMicOnRef.current,
+            isHandRaised: isHandRaisedRef.current,
+            isSpeaking: isMicOnRef.current && audioLevelRef.current > 15,
+          }),
+        });
+        const data = await res.json();
+        if (data.success && data.state?.participants) {
+          setLiveParticipants(data.state.participants);
+        }
+      } catch (e) {}
+    }, 4000);
+
+    const timer = setInterval(() => {
+      setRecordingSeconds((prev) => prev + 1);
+    }, 1000);
+
+    return () => {
+      isMountedRef.current = false;
+      clearInterval(timer);
+      clearInterval(heartbeatInterval);
+      stopMediaTracks();
+
+      try {
+        fetch("/api/live-class", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "LEAVE_CALL" }),
+          keepalive: true,
+        }).catch(() => {});
+      } catch (e) {}
+
+      if (channelRef.current) channelRef.current.close();
+    };
+  }, [mode, stopMediaTracks]);
 
   const toggleFullscreen = () => {
     if (!roomContainerRef.current) return;
@@ -430,6 +498,12 @@ export function ZoomLiveRoom({
       document.exitFullscreen().catch(() => {});
       setIsFullscreen(false);
     }
+  };
+
+  const formatTime = (secs: number) => {
+    const m = Math.floor(secs / 60).toString().padStart(2, "0");
+    const s = (secs % 60).toString().padStart(2, "0");
+    return `${m}:${s}`;
   };
 
   const defaultParticipants = [
@@ -462,7 +536,7 @@ export function ZoomLiveRoom({
       ref={roomContainerRef}
       className="rounded-3xl bg-[#040911] border border-[#162942] overflow-hidden shadow-2xl relative flex flex-col justify-between select-none"
     >
-      {/* 1. Top Zoom Header Bar */}
+      {/* 1. Top Header Bar */}
       <div className="p-3.5 px-5 bg-[#06101D]/90 backdrop-blur-md border-b border-[#162942] flex items-center justify-between z-20">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
@@ -531,7 +605,7 @@ export function ZoomLiveRoom({
           }`}>
             <span className={`w-2 h-2 rounded-full ${isCameraOn ? "bg-emerald-400 animate-pulse" : "bg-rose-400"}`} />
             <Camera className="w-3.5 h-3.5" />
-            <span>{isCameraOn ? "CAMERA: ON (1080p HD)" : "CAMERA: OFF"}</span>
+            <span>{isCameraOn ? "WEBCAM: ON (1080p HD)" : "WEBCAM: OFF"}</span>
           </div>
 
           {/* Microphone Status Badge */}
@@ -559,7 +633,7 @@ export function ZoomLiveRoom({
         <div className="flex items-center gap-2 text-[11px] text-[#94A3B8] font-mono">
           <span>Dolby Audio: Active</span>
           <span>•</span>
-          <span className="text-emerald-400 font-bold">Latency: 14ms</span>
+          <span className="text-emerald-400 font-bold">Latency: 12ms</span>
         </div>
       </div>
 
@@ -586,16 +660,16 @@ export function ZoomLiveRoom({
         {isScreenSharing ? (
           <div className="w-full h-full relative flex items-center justify-center bg-black">
             <video
-              ref={setScreenVideo}
+              ref={attachScreenStream}
               autoPlay
               playsInline
               className="w-full h-full object-contain"
             />
 
-            {/* Floating Instructor Camera PIP */}
+            {/* Floating Camera PIP */}
             <div className="absolute bottom-4 right-4 w-48 sm:w-60 aspect-video rounded-2xl bg-[#081827] border-2 border-[#41D8FF]/60 shadow-2xl overflow-hidden z-20">
               <video
-                ref={setLocalVideo}
+                ref={attachVideoStream}
                 autoPlay
                 playsInline
                 muted
@@ -625,7 +699,7 @@ export function ZoomLiveRoom({
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 p-4 w-full h-full">
             {participants.map((p, idx) => (
               <div
-                key={idx}
+                key={p.id || idx}
                 className={`rounded-2xl bg-[#081827] border flex flex-col items-center justify-center relative overflow-hidden transition-all ${
                   p.isSpeaking
                     ? "border-emerald-400 shadow-lg shadow-emerald-500/20 ring-2 ring-emerald-400/40"
@@ -635,7 +709,7 @@ export function ZoomLiveRoom({
                 {p.isSelf ? (
                   <>
                     <video
-                      ref={setLocalVideo}
+                      ref={attachVideoStream}
                       autoPlay
                       playsInline
                       muted
@@ -649,7 +723,7 @@ export function ZoomLiveRoom({
                           </div>
                         </div>
                         <div>
-                          <span className="text-xs font-bold text-white block">{p.name}</span>
+                          <span className="text-xs font-bold text-white block">{p.name} (You)</span>
                           <span className="text-[10px] text-[#64748B] block">{p.role}</span>
                         </div>
                       </div>
@@ -683,9 +757,9 @@ export function ZoomLiveRoom({
         ) : (
           /* VIEW 3: Speaker Spotlight View (Default) */
           <div className="w-full h-full relative flex items-center justify-center">
-            {/* Always mounted video element for zero lag and perfect stream binding */}
+            {/* Instructor / Broadcaster Video */}
             <video
-              ref={setLocalVideo}
+              ref={attachVideoStream}
               autoPlay
               playsInline
               muted
@@ -729,7 +803,31 @@ export function ZoomLiveRoom({
               </div>
             )}
 
-            {/* Top Left Speaker Badge with Camera Status Icon */}
+            {/* Student Floating Self-View PIP (when in student mode and camera is active) */}
+            {mode === "student" && (
+              <div className="absolute bottom-4 right-4 w-40 sm:w-52 aspect-video rounded-2xl bg-[#081827] border-2 border-[#397CFF]/60 shadow-2xl overflow-hidden z-20">
+                <video
+                  ref={attachStudentSelfVideo}
+                  autoPlay
+                  playsInline
+                  muted
+                  className={`w-full h-full object-cover scale-x-[-1] ${isCameraOn ? "block" : "hidden"}`}
+                />
+                {!isCameraOn && (
+                  <div className="w-full h-full flex flex-col items-center justify-center bg-[#06101D] text-center p-2">
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-[#397CFF] to-[#41D8FF] flex items-center justify-center font-bold text-[10px] text-white mb-1 shadow-md">
+                      YOU
+                    </div>
+                    <span className="text-[10px] text-white font-bold">Your Video (Off)</span>
+                  </div>
+                )}
+                <div className="absolute bottom-1 left-2 text-[9px] font-bold text-white bg-black/60 px-1.5 py-0.5 rounded font-mono">
+                  You ({isMicOn ? "Mic On" : "Muted"})
+                </div>
+              </div>
+            )}
+
+            {/* Top Left Speaker Badge */}
             <div className="absolute top-4 left-4 flex items-center gap-2 bg-slate-950/85 backdrop-blur-md px-3 py-1.5 rounded-xl border border-[#162942] text-xs text-white font-bold">
               <span className={`w-2.5 h-2.5 rounded-full ${isCameraOn ? "bg-emerald-400 animate-pulse" : "bg-rose-500"}`} />
               <span>{instructorName} (Host)</span>
@@ -787,7 +885,7 @@ export function ZoomLiveRoom({
         </div>
       </div>
 
-      {/* 4. Floating Zoom Control Bar (Bottom) */}
+      {/* 4. Floating Zoom / Google Meet Control Bar (Bottom) */}
       <div className="p-4 px-6 bg-[#06101D] border-t border-[#162942] flex flex-wrap items-center justify-between gap-4 z-20">
         {/* Left: Audio & Video Controls */}
         <div className="flex items-center gap-2 sm:gap-3">
