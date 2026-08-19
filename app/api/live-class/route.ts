@@ -175,14 +175,21 @@ export async function GET(req: NextRequest) {
     const activeEmails = new Set(state.participants.map((p) => p.email?.toLowerCase()).filter(Boolean));
     const activeNames = new Set(state.participants.map((p) => p.name.toLowerCase()));
     const activeIds = new Set(state.participants.map((p) => p.id));
+    const markedStudentsMap = state.activeAttendanceCheck?.markedStudents || {};
 
     state.enrolledStudents = state.enrolledStudents.map((s) => {
       const isOnline = activeIds.has(s.id) ||
         (s.email && activeEmails.has(s.email.toLowerCase())) ||
         (s.name && activeNames.has(s.name.toLowerCase()));
+
+      const attendanceRecord = markedStudentsMap[s.id] ||
+        Object.values(markedStudentsMap).find((m: any) => (m.studentId === s.id || m.studentName?.toLowerCase() === s.name.toLowerCase()));
+
       return {
         ...s,
         status: isOnline ? "ONLINE_IN_CALL" : "ABSENT_NOT_JOINED",
+        isAttendanceMarked: !!attendanceRecord,
+        attendanceMarkedAt: attendanceRecord?.markedAt || null,
       };
     });
 

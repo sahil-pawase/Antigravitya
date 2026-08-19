@@ -63,7 +63,7 @@ export default function AdminLiveStudioPage() {
   const [chatInput, setChatInput] = useState("");
 
   // Student Attendance Filter & Search - Defaults to joined students only
-  const [studentFilter, setStudentFilter] = useState<"ONLINE" | "HAND_RAISED" | "ALL" | "ABSENT">("ONLINE");
+  const [studentFilter, setStudentFilter] = useState<"ONLINE" | "VERIFIED" | "HAND_RAISED" | "ALL" | "ABSENT">("ONLINE");
   const [searchQuery, setSearchQuery] = useState("");
 
   const fetchLiveState = async () => {
@@ -184,12 +184,19 @@ export default function AdminLiveStudioPage() {
     handleAction("PIN_NOTICE", { notice: noticeText.trim() });
   };
 
-  // Student Attendance Filtering - Show ONLY real joined students by default
+  // Student Attendance Filtering & Verification Tracking
   const participants: any[] = (liveState?.participants || []).filter((p: any) => p && p.role === "STUDENT");
   const enrolledStudents: any[] = liveState?.enrolledStudents || [];
+  const markedMap: Record<string, any> = liveState?.activeAttendanceCheck?.markedStudents || {};
+  const verifiedList = Object.values(markedMap);
+  const verifiedCount = verifiedList.length;
 
   const filteredStudents = (studentFilter === "ALL" ? enrolledStudents : participants).filter((student: any) => {
     if (studentFilter === "HAND_RAISED" && !student.isHandRaised) return false;
+    if (studentFilter === "VERIFIED") {
+      const isMarked = student.isAttendanceMarked || !!markedMap[student.id] || Object.values(markedMap).some((m: any) => m.studentId === student.id || m.studentName?.toLowerCase() === student.name.toLowerCase());
+      if (!isMarked) return false;
+    }
 
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
@@ -352,7 +359,7 @@ export default function AdminLiveStudioPage() {
         )}
 
         {/* Real-time KPI Stats Bar */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
           <div className="p-4 rounded-2xl bg-[#06101D] border border-[#162942] space-y-1">
             <span className="text-[10px] text-[#64748B] font-bold uppercase tracking-wider">Total Enrolled Cohort</span>
             <div className="flex items-baseline gap-2">
@@ -361,14 +368,25 @@ export default function AdminLiveStudioPage() {
             </div>
           </div>
 
-          <div className="p-4 rounded-2xl bg-[#06101D] border border-emerald-500/30 space-y-1">
+          <div className="p-4 rounded-2xl bg-[#06101D] border border-blue-500/30 space-y-1">
             <div className="flex items-center justify-between">
-              <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider">Joined In Call Now</span>
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+              <span className="text-[10px] text-[#41D8FF] font-bold uppercase tracking-wider">In Call Now</span>
+              <span className="w-2 h-2 rounded-full bg-blue-400 animate-ping" />
             </div>
             <div className="flex items-baseline gap-2">
-              <span className="text-2xl font-black text-emerald-400 font-mono">{onlineCount}</span>
-              <span className="text-xs text-emerald-300 font-bold">({attendancePct}% Attendance)</span>
+              <span className="text-2xl font-black text-[#41D8FF] font-mono">{onlineCount}</span>
+              <span className="text-xs text-blue-300 font-bold">({attendancePct}% Online)</span>
+            </div>
+          </div>
+
+          <div className="p-4 rounded-2xl bg-[#06101D] border border-emerald-500/40 space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider">Attendance Verified</span>
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 animate-pulse" />
+            </div>
+            <div className="flex items-baseline gap-2">
+              <span className="text-2xl font-black text-emerald-400 font-mono">{verifiedCount}</span>
+              <span className="text-xs text-emerald-300 font-bold">Marked Present</span>
             </div>
           </div>
 
@@ -384,7 +402,7 @@ export default function AdminLiveStudioPage() {
             <span className="text-[10px] text-amber-400 font-bold uppercase tracking-wider">Live Hands Raised</span>
             <div className="flex items-baseline gap-2">
               <span className="text-2xl font-black text-amber-400 font-mono">{handsRaisedCount}</span>
-              <span className="text-xs text-amber-300 font-bold">Seeking to Speak</span>
+              <span className="text-xs text-amber-300 font-bold">Speaking</span>
             </div>
           </div>
         </div>
@@ -405,11 +423,21 @@ export default function AdminLiveStudioPage() {
               type="button"
               onClick={() => setStudentFilter("ONLINE")}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                studentFilter === "ONLINE" ? "bg-emerald-600 text-white" : "text-[#94A3B8] hover:text-emerald-400"
+                studentFilter === "ONLINE" ? "bg-blue-600 text-white" : "text-[#94A3B8] hover:text-blue-400"
               }`}
             >
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              <span>In Call Now ({onlineCount})</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+              <span>In Call ({onlineCount})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setStudentFilter("VERIFIED")}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                studentFilter === "VERIFIED" ? "bg-emerald-600 text-white" : "text-[#94A3B8] hover:text-emerald-400"
+              }`}
+            >
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              <span>Verified Present ({verifiedCount})</span>
             </button>
             <button
               type="button"
@@ -450,7 +478,8 @@ export default function AdminLiveStudioPage() {
               <tr className="bg-[#06101D] border-b border-[#162942] text-[#64748B] font-semibold">
                 <th className="p-3.5 pl-4">Candidate Profile</th>
                 <th className="p-3.5">Assigned Cohort</th>
-                <th className="p-3.5">Call Presence Status</th>
+                <th className="p-3.5">Call Presence</th>
+                <th className="p-3.5">Live Attendance Status</th>
                 <th className="p-3.5">Media Telemetry</th>
                 <th className="p-3.5 pr-4 text-right">Instructor Actions</th>
               </tr>
@@ -463,6 +492,9 @@ export default function AdminLiveStudioPage() {
                   const isMic = !!student.isMicOn;
                   const isHand = !!student.isHandRaised;
                   const joinedTime = student.joinedAt || "Just now";
+                  const isMarked = student.isAttendanceMarked || !!markedMap[student.id] || Object.values(markedMap).some((m: any) => m.studentId === student.id || m.studentName?.toLowerCase() === student.name.toLowerCase());
+                  const markedRecord: any = markedMap[student.id] || Object.values(markedMap).find((m: any) => m.studentId === student.id || m.studentName?.toLowerCase() === student.name.toLowerCase());
+                  const markedTime = student.attendanceMarkedAt || markedRecord?.markedAt || "Verified";
 
                   return (
                     <tr key={student.id} className="hover:bg-[#0c223a]/50 transition-colors">
@@ -489,8 +521,8 @@ export default function AdminLiveStudioPage() {
                       {/* Presence Status */}
                       <td className="p-3.5">
                         {isOnline ? (
-                          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-bold text-[11px]">
-                            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-500/10 border border-blue-500/30 text-[#41D8FF] font-bold text-[11px]">
+                            <span className="w-2 h-2 rounded-full bg-blue-400 animate-ping" />
                             <span>IN CALL ({joinedTime})</span>
                           </div>
                         ) : (
@@ -498,6 +530,23 @@ export default function AdminLiveStudioPage() {
                             <UserX className="w-3.5 h-3.5" />
                             <span>NOT JOINED</span>
                           </div>
+                        )}
+                      </td>
+
+                      {/* Live Attendance Verification Status */}
+                      <td className="p-3.5">
+                        {isMarked ? (
+                          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/20 border border-emerald-400 text-emerald-300 font-extrabold text-[11px] shadow-sm">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                            <span>VERIFIED PRESENT ({markedTime})</span>
+                          </div>
+                        ) : isOnline ? (
+                          <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 font-semibold text-[11px]">
+                            <Clock className="w-3 h-3 text-amber-400" />
+                            <span>Awaiting Mark</span>
+                          </div>
+                        ) : (
+                          <span className="text-[11px] text-[#64748B] font-mono">—</span>
                         )}
                       </td>
 
@@ -551,40 +600,38 @@ export default function AdminLiveStudioPage() {
                               <button
                                 type="button"
                                 onClick={() => handleAction("MUTE_STUDENT", { studentId: student.id })}
-                                className="px-2.5 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-300 text-[11px] font-bold transition-colors cursor-pointer"
+                                className="p-1.5 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-400 hover:bg-rose-500/20 text-xs font-semibold"
                                 title="Mute Student Microphone"
                               >
-                                Mute Mic 🔇
+                                <MicOff className="w-3 h-3" />
                               </button>
                             )}
-
                             {isHand && (
                               <button
                                 type="button"
                                 onClick={() => handleAction("LOWER_HAND", { studentId: student.id })}
-                                className="px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 text-[11px] font-bold transition-colors cursor-pointer"
-                                title="Lower Hand"
+                                className="px-2 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 hover:bg-amber-500/20 text-[10px] font-bold"
+                                title="Lower Student Hand"
                               >
-                                Lower Hand ✋
+                                Lower Hand
                               </button>
                             )}
-
                             <button
                               type="button"
                               onClick={() => handleAction("DISMISS_STUDENT", { studentId: student.id })}
-                              className="px-2.5 py-1 rounded-lg bg-[#06101D] hover:bg-rose-950/40 border border-[#162942] hover:border-rose-500/30 text-[#94A3B8] hover:text-rose-300 text-[11px] transition-colors cursor-pointer"
-                              title="Disconnect Student"
+                              className="p-1.5 rounded-lg bg-slate-800 border border-slate-700 text-slate-400 hover:text-rose-400 hover:border-rose-500/30 text-xs font-semibold"
+                              title="Dismiss from Classroom"
                             >
-                              Dismiss
+                              <UserX className="w-3 h-3" />
                             </button>
                           </div>
                         ) : (
                           <button
                             type="button"
                             onClick={() => handleAction("PING_ABSENT")}
-                            className="px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 text-[11px] font-bold transition-colors cursor-pointer"
+                            className="px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 hover:bg-amber-500/20 text-[10px] font-bold"
                           >
-                            Send Call Ping 🔔
+                            Send Ping 🔔
                           </button>
                         )}
                       </td>
@@ -593,18 +640,78 @@ export default function AdminLiveStudioPage() {
                 })
               ) : (
                 <tr>
-                  <td colSpan={5} className="p-8 text-center text-[#94A3B8] text-xs">
-                    <div className="flex flex-col items-center justify-center space-y-2">
-                      <Users className="w-8 h-8 text-[#64748B] opacity-50" />
-                      <span className="font-semibold text-white">No students currently in this live meeting.</span>
-                      <span className="text-[#64748B] text-[11px]">When candidates open their dashboard classroom, they will immediately appear here in real-time.</span>
-                    </div>
+                  <td colSpan={6} className="p-8 text-center text-[#64748B]">
+                    No students match the current filter criteria.
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
+
+        {/* Verified Attendance Real-Time Audit Section */}
+        {verifiedList.length > 0 && (
+          <div className="p-5 rounded-2xl bg-[#06101D] border border-emerald-500/30 space-y-4 animate-fadeIn">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#162942] pb-3">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                <div>
+                  <h4 className="text-xs font-extrabold text-white uppercase tracking-wider">
+                    📋 Verified Student Attendance Audit Log ({verifiedList.length} Verified Present)
+                  </h4>
+                  <p className="text-[11px] text-[#94A3B8]">
+                    Real-time list of students who clicked "Mark Present" during this live class.
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const csvRows = [
+                    ["Student Name", "Student ID", "Marked Time", "Status"],
+                    ...verifiedList.map((v: any) => [v.studentName, v.studentId, v.markedAt, "PRESENT_VERIFIED"]),
+                  ];
+                  const csvContent = "data:text/csv;charset=utf-8," + csvRows.map((e) => e.join(",")).join("\n");
+                  const encodedUri = encodeURI(csvContent);
+                  const link = document.createElement("a");
+                  link.setAttribute("href", encodedUri);
+                  link.setAttribute("download", `live_attendance_${new Date().toISOString().slice(0, 10)}.csv`);
+                  document.body.appendChild(link);
+                  link.click();
+                  document.body.removeChild(link);
+                }}
+                className="px-3.5 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400 text-emerald-300 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Export Attendance CSV 📥</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+              {verifiedList.map((v: any, idx: number) => (
+                <div
+                  key={v.studentId || idx}
+                  className="p-3 rounded-xl bg-[#081827] border border-emerald-500/30 flex items-center justify-between gap-3 shadow-md"
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-8 h-8 rounded-lg bg-emerald-500/20 border border-emerald-400 flex items-center justify-center text-emerald-300 font-black text-xs flex-shrink-0">
+                      {v.studentName ? v.studentName.substring(0, 2).toUpperCase() : "ST"}
+                    </div>
+                    <div className="min-w-0">
+                      <span className="font-bold text-xs text-white block truncate">{v.studentName}</span>
+                      <span className="text-[10px] text-emerald-400 font-mono block">Verified at {v.markedAt}</span>
+                    </div>
+                  </div>
+
+                  <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[10px] font-bold flex-shrink-0">
+                    ✅ Present
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* 3. Studio Configuration & Live Moderation Controls */}
