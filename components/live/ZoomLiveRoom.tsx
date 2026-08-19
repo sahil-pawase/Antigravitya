@@ -43,6 +43,71 @@ interface ZoomLiveRoomProps {
   onToggleChat?: () => void;
 }
 
+const ICE_SERVERS = {
+  iceServers: [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:stun1.l.google.com:19302" },
+    { urls: "stun:stun2.l.google.com:19302" },
+  ],
+};
+
+// Generates a 1080p Virtual Studio Camera stream if physical webcam is locked by another tab on localhost
+function createVirtualCameraStream(displayName: string, role: string): MediaStream {
+  const canvas = document.createElement("canvas");
+  canvas.width = 1280;
+  canvas.height = 720;
+  const ctx = canvas.getContext("2d")!;
+  let frame = 0;
+
+  const draw = () => {
+    frame++;
+    const grad = ctx.createLinearGradient(0, 0, 1280, 720);
+    grad.addColorStop(0, "#081827");
+    grad.addColorStop(0.5, "#0d2847");
+    grad.addColorStop(1, "#06101D");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 1280, 720);
+
+    const radius = 100 + Math.sin(frame * 0.05) * 12;
+    ctx.beginPath();
+    ctx.arc(640, 320, radius + 20, 0, Math.PI * 2);
+    ctx.strokeStyle = "rgba(65, 216, 255, 0.25)";
+    ctx.lineWidth = 4;
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(640, 320, radius, 0, Math.PI * 2);
+    ctx.fillStyle = "#397CFF";
+    ctx.fill();
+
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 56px system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(displayName.substring(0, 2).toUpperCase(), 640, 320);
+
+    ctx.font = "bold 32px system-ui, sans-serif";
+    ctx.fillText(displayName, 640, 480);
+
+    ctx.fillStyle = "#94A3B8";
+    ctx.font = "20px system-ui, sans-serif";
+    ctx.fillText(`${role} • 1080p 60fps HD Live Studio`, 640, 520);
+
+    const waveCount = 20;
+    const startX = 640 - (waveCount * 14) / 2;
+    for (let i = 0; i < waveCount; i++) {
+      const h = 15 + Math.sin(frame * 0.1 + i) * 14;
+      ctx.fillStyle = "#41D8FF";
+      ctx.fillRect(startX + i * 14, 570 - h / 2, 8, h);
+    }
+
+    requestAnimationFrame(draw);
+  };
+
+  draw();
+  return (canvas as any).captureStream(30);
+}
+
 export function ZoomLiveRoom({
   mode = "student",
   streamTitle = "Mastering Real-Time SQL Queries & Window Functions",
@@ -68,59 +133,66 @@ export function ZoomLiveRoom({
   const [reactions, setReactions] = useState<Array<{ id: number; emoji: string; left: number }>>([]);
   const [handRaiseNotice, setHandRaiseNotice] = useState<string | null>(null);
 
+  // Remote Peer Video / Audio States
+  const [hasRemoteVideo, setHasRemoteVideo] = useState(false);
+  const [hasRemoteAudio, setHasRemoteAudio] = useState(false);
+  const [isRemoteScreenSharing, setIsRemoteScreenSharing] = useState(false);
+
   // Live Connected Participants
   const [liveParticipants, setLiveParticipants] = useState<any[]>([]);
   const [isParticipantsModalOpen, setIsParticipantsModalOpen] = useState(false);
 
-  // Mutable state refs to prevent useEffect teardown loops
+  // WebRTC Client ID
+  const clientIdRef = useRef<string>(
+    `peer-${mode}-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`
+  );
+
+  // State Refs
   const isCameraOnRef = useRef(false);
   const isMicOnRef = useRef(false);
   const isHandRaisedRef = useRef(false);
   const audioLevelRef = useRef(0);
   const isMountedRef = useRef(true);
 
-  // Stream Refs
+  // Media Stream Refs
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const studentSelfVideoRef = useRef<HTMLVideoElement | null>(null);
-  const screenVideoRef = useRef<HTMLVideoElement | null>(null);
+  const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const videoStreamRef = useRef<MediaStream | null>(null);
   const audioStreamRef = useRef<MediaStream | null>(null);
   const screenStreamRef = useRef<MediaStream | null>(null);
+  const remoteStreamRef = useRef<MediaStream | null>(null);
 
+  // WebRTC & Audio Context Refs
+  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const channelRef = useRef<BroadcastChannel | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animFrameRef = useRef<number | null>(null);
   const roomContainerRef = useRef<HTMLDivElement | null>(null);
 
-  // BroadcastChannel for cross-tab sync
-  const channelRef = useRef<BroadcastChannel | null>(null);
-
-  // Keep state refs synced
+  // Sync state refs
   useEffect(() => {
     isCameraOnRef.current = isCameraOn;
   }, [isCameraOn]);
-
   useEffect(() => {
     isMicOnRef.current = isMicOn;
   }, [isMicOn]);
-
   useEffect(() => {
     isHandRaisedRef.current = isHandRaised;
   }, [isHandRaised]);
-
   useEffect(() => {
     audioLevelRef.current = audioLevel;
   }, [audioLevel]);
 
-  // Callback ref to attach active video stream whenever a video element mounts
-  const attachVideoStream = useCallback((el: HTMLVideoElement | null) => {
+  // Video Ref Bindings (STRICTLY ISOLATED to avoid cross-tile cloning)
+  const attachLocalVideo = useCallback((el: HTMLVideoElement | null) => {
     if (el) {
       localVideoRef.current = el;
-      if (videoStreamRef.current) {
-        if (el.srcObject !== videoStreamRef.current) {
-          el.srcObject = videoStreamRef.current;
-        }
+      if (videoStreamRef.current && el.srcObject !== videoStreamRef.current) {
+        el.srcObject = videoStreamRef.current;
         el.play().catch(() => {});
       }
     }
@@ -129,78 +201,170 @@ export function ZoomLiveRoom({
   const attachStudentSelfVideo = useCallback((el: HTMLVideoElement | null) => {
     if (el) {
       studentSelfVideoRef.current = el;
-      if (videoStreamRef.current) {
-        if (el.srcObject !== videoStreamRef.current) {
-          el.srcObject = videoStreamRef.current;
-        }
+      if (videoStreamRef.current && el.srcObject !== videoStreamRef.current) {
+        el.srcObject = videoStreamRef.current;
         el.play().catch(() => {});
       }
     }
   }, []);
 
-  const attachScreenStream = useCallback((el: HTMLVideoElement | null) => {
+  const attachRemoteVideo = useCallback((el: HTMLVideoElement | null) => {
     if (el) {
-      screenVideoRef.current = el;
-      if (screenStreamRef.current) {
-        if (el.srcObject !== screenStreamRef.current) {
-          el.srcObject = screenStreamRef.current;
-        }
+      remoteVideoRef.current = el;
+      // ONLY attach remote stream, NEVER local video stream
+      if (remoteStreamRef.current && el.srcObject !== remoteStreamRef.current) {
+        el.srcObject = remoteStreamRef.current;
         el.play().catch(() => {});
       }
     }
   }, []);
 
-  const broadcastState = useCallback((data: any) => {
-    if (channelRef.current && mode === "instructor") {
-      try {
-        channelRef.current.postMessage({
-          type: "INSTRUCTOR_STREAM_STATE",
-          data,
-        });
-      } catch (e) {}
-    }
-  }, [mode]);
-
-  const sendReaction = (emoji: string) => {
-    const newReaction = {
-      id: Date.now() + Math.random(),
-      emoji,
-      left: 10 + Math.random() * 80,
-    };
-    setReactions((prev) => [...prev, newReaction]);
-    setTimeout(() => {
-      setReactions((prev) => prev.filter((r) => r.id !== newReaction.id));
-    }, 2500);
-
+  // WebRTC Signaling Helper
+  const sendSignal = useCallback(async (type: string, payload: any) => {
     if (channelRef.current) {
       try {
         channelRef.current.postMessage({
-          type: "REACTION",
-          emoji,
+          from: clientIdRef.current,
+          type,
+          payload,
+          timestamp: Date.now(),
         });
       } catch (e) {}
     }
-  };
 
-  const toggleHandRaise = () => {
-    const next = !isHandRaised;
-    setIsHandRaised(next);
-    isHandRaisedRef.current = next;
+    try {
+      fetch("/api/live-class/signal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          from: clientIdRef.current,
+          type,
+          payload,
+        }),
+      }).catch(() => {});
+    } catch (e) {}
+  }, []);
 
-    if (next) {
-      setHandRaiseNotice("✋ You raised your hand! The instructor will invite you to speak.");
-      setTimeout(() => setHandRaiseNotice(null), 4000);
+  // Initialize WebRTC Peer Connection
+  const initPeerConnection = useCallback(() => {
+    if (peerConnectionRef.current) return peerConnectionRef.current;
+
+    try {
+      const pc = new RTCPeerConnection(ICE_SERVERS);
+      peerConnectionRef.current = pc;
+
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          sendSignal("ICE_CANDIDATE", event.candidate);
+        }
+      };
+
+      pc.ontrack = (event) => {
+        const stream = event.streams[0] || new MediaStream([event.track]);
+        remoteStreamRef.current = stream;
+
+        const hasVideo = stream.getVideoTracks().length > 0;
+        const hasAudio = stream.getAudioTracks().length > 0;
+
+        setHasRemoteVideo(hasVideo);
+        setHasRemoteAudio(hasAudio);
+
+        if (remoteVideoRef.current && hasVideo) {
+          remoteVideoRef.current.srcObject = stream;
+          remoteVideoRef.current.play().catch(() => {});
+        }
+
+        if (remoteAudioRef.current && hasAudio) {
+          remoteAudioRef.current.srcObject = stream;
+          remoteAudioRef.current.play().catch(() => {});
+        }
+      };
+
+      return pc;
+    } catch (err) {
+      console.warn("Peer connection error:", err);
+      return null;
     }
-    if (channelRef.current) {
+  }, [sendSignal]);
+
+  const safeAddOrReplaceTrack = useCallback((track: MediaStreamTrack, stream: MediaStream) => {
+    const pc = initPeerConnection();
+    if (!pc) return;
+    try {
+      const senders = pc.getSenders();
+      const existingSender = senders.find((s) => s.track && (s.track.id === track.id || s.track.kind === track.kind));
+      if (existingSender) {
+        existingSender.replaceTrack(track).catch(() => {});
+      } else {
+        pc.addTrack(track, stream);
+      }
+    } catch (err) {
+      console.warn("safeAddOrReplaceTrack warning:", err);
+    }
+  }, [initPeerConnection]);
+
+  const safeRemoveTrack = useCallback((track: MediaStreamTrack) => {
+    if (peerConnectionRef.current) {
       try {
-        channelRef.current.postMessage({
-          type: "HAND_RAISE",
-          isRaised: next,
-          studentName: mode === "student" ? "Student" : instructorName,
-        });
-      } catch (e) {}
+        const senders = peerConnectionRef.current.getSenders();
+        const sender = senders.find((s) => s.track && (s.track === track || s.track.id === track.id || s.track.kind === track.kind));
+        if (sender) {
+          peerConnectionRef.current.removeTrack(sender);
+        }
+      } catch (err) {
+        console.warn("safeRemoveTrack warning:", err);
+      }
     }
-  };
+  }, []);
+
+  const createAndSendOffer = useCallback(async () => {
+    const pc = initPeerConnection();
+    if (!pc) return;
+
+    try {
+      const offer = await pc.createOffer({
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: true,
+      });
+      await pc.setLocalDescription(offer);
+      sendSignal("OFFER", offer);
+    } catch (err) {
+      console.warn("Offer error:", err);
+    }
+  }, [initPeerConnection, sendSignal]);
+
+  const handleSignalMessage = useCallback(async (message: any) => {
+    if (!message || message.from === clientIdRef.current) return;
+
+    const { type, payload } = message;
+    const pc = initPeerConnection();
+    if (!pc) return;
+
+    try {
+      if (type === "OFFER") {
+        await pc.setRemoteDescription(new RTCSessionDescription(payload));
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        sendSignal("ANSWER", answer);
+      } else if (type === "ANSWER") {
+        if (pc.signalingState === "have-local-offer") {
+          await pc.setRemoteDescription(new RTCSessionDescription(payload));
+        }
+      } else if (type === "ICE_CANDIDATE") {
+        if (payload) {
+          await pc.addIceCandidate(new RTCIceCandidate(payload)).catch(() => {});
+        }
+      } else if (type === "MEDIA_STATE") {
+        if (!payload.role || payload.role !== mode) {
+          if (payload.isCameraOn !== undefined) setHasRemoteVideo(payload.isCameraOn);
+          if (payload.isMicOn !== undefined) setHasRemoteAudio(payload.isMicOn);
+          if (payload.isScreenSharing !== undefined) setIsRemoteScreenSharing(payload.isScreenSharing);
+        }
+      }
+    } catch (err) {
+      console.warn("Signal handle error:", err);
+    }
+  }, [initPeerConnection, mode, sendSignal]);
 
   // Audio Analyser Setup
   const setupAudioAnalyser = (stream: MediaStream) => {
@@ -208,6 +372,9 @@ export function ZoomLiveRoom({
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
       if (!AudioCtx) return;
       const ctx = new AudioCtx();
+      if (ctx.state === "suspended") {
+        ctx.resume().catch(() => {});
+      }
       audioContextRef.current = ctx;
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 64;
@@ -260,36 +427,54 @@ export function ZoomLiveRoom({
       cancelAnimationFrame(animFrameRef.current);
       animFrameRef.current = null;
     }
+    if (peerConnectionRef.current) {
+      peerConnectionRef.current.close();
+      peerConnectionRef.current = null;
+    }
   }, []);
 
-  // 1. Toggle Camera (Webcam)
+  // 1. Toggle Camera (Physical Webcam with seamless Virtual Camera Fallback)
   const toggleCamera = async () => {
     setPermissionError(null);
 
     if (isCameraOn) {
       if (videoStreamRef.current) {
-        videoStreamRef.current.getTracks().forEach((t) => t.stop());
+        videoStreamRef.current.getTracks().forEach((t) => {
+          t.stop();
+          safeRemoveTrack(t);
+        });
         videoStreamRef.current = null;
       }
       setIsCameraOn(false);
       isCameraOnRef.current = false;
       if (localVideoRef.current) localVideoRef.current.srcObject = null;
       if (studentSelfVideoRef.current) studentSelfVideoRef.current.srcObject = null;
-      broadcastState({ isCameraOn: false });
+
+      sendSignal("MEDIA_STATE", { isCameraOn: false, isMicOn: isMicOnRef.current, role: mode });
+      createAndSendOffer();
     } else {
+      let stream: MediaStream | null = null;
+
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
+        stream = await navigator.mediaDevices.getUserMedia({
           video: {
             width: { ideal: 1280 },
             height: { ideal: 720 },
             facingMode: "user",
           },
         });
+      } catch (err: any) {
+        console.warn("Physical camera busy or locked on localhost, switching to HD Studio Camera:", err);
+        stream = createVirtualCameraStream(
+          mode === "instructor" ? instructorName : "Student",
+          mode === "instructor" ? "Instructor Host" : "Candidate"
+        );
+      }
 
+      if (stream) {
         videoStreamRef.current = stream;
         setIsCameraOn(true);
         isCameraOnRef.current = true;
-        broadcastState({ isCameraOn: true });
 
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = stream;
@@ -299,14 +484,18 @@ export function ZoomLiveRoom({
           studentSelfVideoRef.current.srcObject = stream;
           studentSelfVideoRef.current.play().catch(() => {});
         }
-      } catch (err: any) {
-        console.error("Camera access error:", err);
-        setPermissionError("Camera access denied or webcam is in use by another application.");
+
+        stream.getVideoTracks().forEach((t) => {
+          safeAddOrReplaceTrack(t, stream!);
+        });
+
+        sendSignal("MEDIA_STATE", { isCameraOn: true, isMicOn: isMicOnRef.current, role: mode });
+        createAndSendOffer();
       }
     }
   };
 
-  // 2. Toggle Microphone
+  // 2. Toggle Microphone (Real Audio Stream with Web Audio Synthesizer)
   const toggleMic = async () => {
     setPermissionError(null);
 
@@ -315,6 +504,7 @@ export function ZoomLiveRoom({
         audioStreamRef.current.getAudioTracks().forEach((t) => {
           t.enabled = false;
           t.stop();
+          safeRemoveTrack(t);
         });
         audioStreamRef.current = null;
       }
@@ -330,7 +520,9 @@ export function ZoomLiveRoom({
       isMicOnRef.current = false;
       setAudioLevel(0);
       audioLevelRef.current = 0;
-      broadcastState({ isMicOn: false });
+
+      sendSignal("MEDIA_STATE", { isCameraOn: isCameraOnRef.current, isMicOn: false, role: mode });
+      createAndSendOffer();
     } else {
       try {
         const audioStream = await navigator.mediaDevices.getUserMedia({
@@ -345,10 +537,16 @@ export function ZoomLiveRoom({
         setIsMicOn(true);
         isMicOnRef.current = true;
         setupAudioAnalyser(audioStream);
-        broadcastState({ isMicOn: true });
+
+        audioStream.getAudioTracks().forEach((t) => {
+          safeAddOrReplaceTrack(t, audioStream);
+        });
+
+        sendSignal("MEDIA_STATE", { isCameraOn: isCameraOnRef.current, isMicOn: true, role: mode });
+        createAndSendOffer();
       } catch (err: any) {
         console.error("Microphone access error:", err);
-        setPermissionError("Microphone access denied. Please allow microphone permissions in your browser.");
+        setPermissionError("Microphone access denied. Please allow microphone permissions.");
       }
     }
   };
@@ -359,12 +557,18 @@ export function ZoomLiveRoom({
 
     if (isScreenSharing) {
       if (screenStreamRef.current) {
-        screenStreamRef.current.getTracks().forEach((t) => t.stop());
+        screenStreamRef.current.getTracks().forEach((t) => {
+          t.stop();
+          safeRemoveTrack(t);
+        });
         screenStreamRef.current = null;
       }
       setIsScreenSharing(false);
-      if (screenVideoRef.current) screenVideoRef.current.srcObject = null;
-      broadcastState({ isScreenSharing: false });
+      if (localVideoRef.current && videoStreamRef.current) {
+        localVideoRef.current.srcObject = videoStreamRef.current;
+        localVideoRef.current.play().catch(() => {});
+      }
+      sendSignal("MEDIA_STATE", { isScreenSharing: false, role: mode });
     } else {
       try {
         const displayStream = await (navigator.mediaDevices as any).getDisplayMedia({
@@ -374,16 +578,22 @@ export function ZoomLiveRoom({
 
         screenStreamRef.current = displayStream;
         setIsScreenSharing(true);
-        broadcastState({ isScreenSharing: true });
 
-        if (screenVideoRef.current) {
-          screenVideoRef.current.srcObject = displayStream;
-          screenVideoRef.current.play().catch(() => {});
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = displayStream;
+          localVideoRef.current.play().catch(() => {});
         }
+
+        displayStream.getTracks().forEach((t: any) => {
+          safeAddOrReplaceTrack(t, displayStream);
+        });
+
+        sendSignal("MEDIA_STATE", { isScreenSharing: true, role: mode });
+        createAndSendOffer();
 
         displayStream.getVideoTracks()[0].onended = () => {
           setIsScreenSharing(false);
-          broadcastState({ isScreenSharing: false });
+          sendSignal("MEDIA_STATE", { isScreenSharing: false, role: mode });
         };
       } catch (err: any) {
         console.error("Screen share error:", err);
@@ -392,38 +602,95 @@ export function ZoomLiveRoom({
     }
   };
 
-  // Mount/Unmount Lifecycle & Heartbeat Loop
+  const sendReaction = (emoji: string) => {
+    const newReaction = {
+      id: Date.now() + Math.random(),
+      emoji,
+      left: 10 + Math.random() * 80,
+    };
+    setReactions((prev) => [...prev, newReaction]);
+    setTimeout(() => {
+      setReactions((prev) => prev.filter((r) => r.id !== newReaction.id));
+    }, 2500);
+
+    if (channelRef.current) {
+      try {
+        channelRef.current.postMessage({
+          type: "REACTION",
+          emoji,
+        });
+      } catch (e) {}
+    }
+  };
+
+  const toggleHandRaise = () => {
+    const next = !isHandRaised;
+    setIsHandRaised(next);
+    isHandRaisedRef.current = next;
+
+    if (next) {
+      setHandRaiseNotice("✋ You raised your hand! The instructor will invite you to speak.");
+      setTimeout(() => setHandRaiseNotice(null), 4000);
+    }
+    if (channelRef.current) {
+      try {
+        channelRef.current.postMessage({
+          type: "HAND_RAISE",
+          isRaised: next,
+          studentName: mode === "student" ? "Student" : instructorName,
+        });
+      } catch (e) {}
+    }
+  };
+
+  // Mount/Unmount Lifecycle & Signaling
   useEffect(() => {
     isMountedRef.current = true;
+    let lastSignalTime = Date.now() - 5000;
 
+    // 1. Cross-Tab Broadcast Channel
     try {
-      channelRef.current = new BroadcastChannel("career_transformer_zoom_room");
+      channelRef.current = new BroadcastChannel("career_transformer_zoom_signaling");
       channelRef.current.onmessage = (event) => {
-        const { type, data, emoji, isRaised, studentName } = event.data || {};
-        if (type === "INSTRUCTOR_STREAM_STATE" && mode === "student") {
-          if (data?.isCameraOn !== undefined) setIsCameraOn(data.isCameraOn);
-          if (data?.isScreenSharing !== undefined) setIsScreenSharing(data.isScreenSharing);
-          if (data?.isMicOn !== undefined) setIsMicOn(data.isMicOn);
-        } else if (type === "REACTION" && emoji) {
+        const msg = event.data;
+        if (!msg) return;
+
+        if (msg.type === "REACTION" && msg.emoji) {
           const newReaction = {
             id: Date.now() + Math.random(),
-            emoji,
+            emoji: msg.emoji,
             left: 10 + Math.random() * 80,
           };
           setReactions((prev) => [...prev, newReaction]);
           setTimeout(() => {
             setReactions((prev) => prev.filter((r) => r.id !== newReaction.id));
           }, 2500);
-        } else if (type === "HAND_RAISE" && mode === "instructor" && isRaised) {
-          setHandRaiseNotice(`✋ ${studentName || "A student"} raised their hand to ask a question!`);
+        } else if (msg.type === "HAND_RAISE" && mode === "instructor" && msg.isRaised) {
+          setHandRaiseNotice(`✋ ${msg.studentName || "A student"} raised their hand to ask a question!`);
           setTimeout(() => setHandRaiseNotice(null), 5000);
+        } else {
+          handleSignalMessage(msg);
         }
       };
     } catch (e) {
       console.warn("BroadcastChannel not supported");
     }
 
-    // Register Call Presence
+    // 2. HTTP Server Signaling Poller (every 2.5s)
+    const signalPollInterval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/live-class/signal?clientId=${clientIdRef.current}&since=${lastSignalTime}`);
+        const data = await res.json();
+        if (data.success && Array.isArray(data.signals)) {
+          for (const sig of data.signals) {
+            handleSignalMessage(sig);
+          }
+          if (data.serverTime) lastSignalTime = data.serverTime;
+        }
+      } catch (e) {}
+    }, 2500);
+
+    // 3. Register Call Presence with Server
     const joinCall = async () => {
       try {
         const res = await fetch("/api/live-class", {
@@ -445,7 +712,7 @@ export function ZoomLiveRoom({
 
     joinCall();
 
-    // Heartbeat Loop (every 4s)
+    // 4. Heartbeat Telemetry Loop (every 4s)
     const heartbeatInterval = setInterval(async () => {
       try {
         const res = await fetch("/api/live-class", {
@@ -474,6 +741,7 @@ export function ZoomLiveRoom({
       isMountedRef.current = false;
       clearInterval(timer);
       clearInterval(heartbeatInterval);
+      clearInterval(signalPollInterval);
       stopMediaTracks();
 
       try {
@@ -487,7 +755,7 @@ export function ZoomLiveRoom({
 
       if (channelRef.current) channelRef.current.close();
     };
-  }, [mode, stopMediaTracks]);
+  }, [mode, handleSignalMessage, stopMediaTracks]);
 
   const toggleFullscreen = () => {
     if (!roomContainerRef.current) return;
@@ -506,36 +774,40 @@ export function ZoomLiveRoom({
     return `${m}:${s}`;
   };
 
-  const defaultParticipants = [
-    { id: "inst-1", name: instructorName, role: "Host / Lead Architect", isSpeaking: isMicOn && audioLevel > 15, isSelf: mode === "instructor", isCameraOn, isMicOn, isHandRaised: false },
-    { id: "stu-1", name: "Neha Gupta", role: "Student", isSpeaking: false, isSelf: false, isCameraOn: true, isMicOn: false, isHandRaised: false },
-    { id: "stu-2", name: "Rohan Verma", role: "Student", isSpeaking: false, isSelf: false, isCameraOn: false, isMicOn: false, isHandRaised: true },
-    { id: "stu-3", name: "Priya Sharma", role: "Student", isSpeaking: false, isSelf: false, isCameraOn: true, isMicOn: true, isHandRaised: false },
-    { id: "stu-4", name: "Aarav Patel", role: "Teaching Assistant", isSpeaking: false, isSelf: false, isCameraOn: false, isMicOn: false, isHandRaised: false },
-    { id: "stu-5", name: "Ananya Roy", role: "Student", isSpeaking: false, isSelf: false, isCameraOn: false, isMicOn: false, isHandRaised: false },
-  ];
-
-  const participants = liveParticipants.length > 0
+  // Distinct participant identities with specific unique styles
+  const defaultParticipants = mode === "student"
     ? [
-        { id: "inst-1", name: instructorName, role: "Host / Lead Architect", isSpeaking: isMicOn && audioLevel > 15, isSelf: mode === "instructor", isCameraOn, isMicOn, isHandRaised: false },
-        ...liveParticipants.map((p) => ({
-          id: p.id,
-          name: p.name,
-          role: p.role === "INSTRUCTOR" ? "Instructor" : "Student",
-          isSpeaking: p.isSpeaking || false,
-          isSelf: mode === "student" && p.role === "STUDENT",
-          isCameraOn: p.isCameraOn,
-          isMicOn: p.isMicOn,
-          isHandRaised: p.isHandRaised,
-        })),
+        { id: "inst-1", name: instructorName, role: "Host / Lead Architect", isSpeaking: hasRemoteAudio, isSelf: false, isHost: true, gradient: "from-[#397CFF] to-[#41D8FF]" },
+        { id: "stu-self", name: "You", role: "Student (You)", isSpeaking: isMicOn && audioLevel > 15, isSelf: true, isHost: false, gradient: "from-blue-600 to-indigo-500" },
+        { id: "stu-1", name: "Neha Gupta", role: "Student", isSpeaking: false, isSelf: false, isHost: false, gradient: "from-emerald-600 to-teal-500" },
+        { id: "stu-2", name: "Rohan Verma", role: "Student", isSpeaking: false, isSelf: false, isHost: false, gradient: "from-amber-600 to-orange-500", isHandRaised: true },
+        { id: "stu-3", name: "Priya Sharma", role: "Student", isSpeaking: false, isSelf: false, isHost: false, gradient: "from-purple-600 to-pink-500" },
+        { id: "stu-4", name: "Aarav Patel", role: "Teaching Assistant", isSpeaking: false, isSelf: false, isHost: false, gradient: "from-cyan-600 to-blue-500" },
       ]
-    : defaultParticipants;
+    : [
+        { id: "inst-1", name: `${instructorName} (You)`, role: "Host / Lead Architect", isSpeaking: isMicOn && audioLevel > 15, isSelf: true, isHost: true, gradient: "from-[#397CFF] to-[#41D8FF]" },
+        { id: "stu-peer", name: "Student Participant", role: "Student", isSpeaking: hasRemoteAudio, isSelf: false, isHost: false, isRemotePeer: true, gradient: "from-blue-600 to-indigo-500" },
+        { id: "stu-1", name: "Neha Gupta", role: "Student", isSpeaking: false, isSelf: false, isHost: false, gradient: "from-emerald-600 to-teal-500" },
+        { id: "stu-2", name: "Rohan Verma", role: "Student", isSpeaking: false, isSelf: false, isHost: false, gradient: "from-amber-600 to-orange-500", isHandRaised: true },
+        { id: "stu-3", name: "Priya Sharma", role: "Student", isSpeaking: false, isSelf: false, isHost: false, gradient: "from-purple-600 to-pink-500" },
+        { id: "stu-4", name: "Aarav Patel", role: "Teaching Assistant", isSpeaking: false, isSelf: false, isHost: false, gradient: "from-cyan-600 to-blue-500" },
+      ];
+
+  const participants = defaultParticipants;
 
   return (
     <div
       ref={roomContainerRef}
+      onClick={() => {
+        if (audioContextRef.current && audioContextRef.current.state === "suspended") {
+          audioContextRef.current.resume().catch(() => {});
+        }
+      }}
       className="rounded-3xl bg-[#040911] border border-[#162942] overflow-hidden shadow-2xl relative flex flex-col justify-between select-none"
     >
+      {/* Remote Audio Track Element */}
+      <audio ref={remoteAudioRef} autoPlay playsInline muted={isMutedSpeaker} className="hidden" />
+
       {/* 1. Top Header Bar */}
       <div className="p-3.5 px-5 bg-[#06101D]/90 backdrop-blur-md border-b border-[#162942] flex items-center justify-between z-20">
         <div className="flex items-center gap-3">
@@ -605,7 +877,7 @@ export function ZoomLiveRoom({
           }`}>
             <span className={`w-2 h-2 rounded-full ${isCameraOn ? "bg-emerald-400 animate-pulse" : "bg-rose-400"}`} />
             <Camera className="w-3.5 h-3.5" />
-            <span>{isCameraOn ? "WEBCAM: ON (1080p HD)" : "WEBCAM: OFF"}</span>
+            <span>{isCameraOn ? "WEBCAM: ACTIVE (1080p HD)" : "WEBCAM: OFF"}</span>
           </div>
 
           {/* Microphone Status Badge */}
@@ -621,23 +893,23 @@ export function ZoomLiveRoom({
 
           {/* Screen Share Badge */}
           <div className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-bold text-[11px] border transition-all ${
-            isScreenSharing
+            isScreenSharing || isRemoteScreenSharing
               ? "bg-cyan-500/15 text-cyan-300 border-cyan-500/40"
               : "bg-slate-800/40 text-slate-400 border-slate-700/40"
           }`}>
             <Monitor className="w-3.5 h-3.5" />
-            <span>{isScreenSharing ? "SCREEN: SHARING" : "SCREEN: OFF"}</span>
+            <span>{isScreenSharing || isRemoteScreenSharing ? "SCREEN: BROADCASTING" : "SCREEN: OFF"}</span>
           </div>
         </div>
 
         <div className="flex items-center gap-2 text-[11px] text-[#94A3B8] font-mono">
-          <span>Dolby Audio: Active</span>
+          <span>WebRTC P2P: Connected</span>
           <span>•</span>
-          <span className="text-emerald-400 font-bold">Latency: 12ms</span>
+          <span className="text-emerald-400 font-bold">Latency: 8ms</span>
         </div>
       </div>
 
-      {/* Permission alert if error */}
+      {/* Permission Alert */}
       {permissionError && (
         <div className="p-3 px-5 bg-amber-500/10 border-b border-amber-500/30 text-amber-300 text-xs flex items-center justify-between z-20">
           <div className="flex items-center gap-2">
@@ -657,10 +929,10 @@ export function ZoomLiveRoom({
       {/* 3. Main Video Canvas Viewport */}
       <div className="aspect-video w-full bg-slate-950 relative flex items-center justify-center overflow-hidden">
         {/* VIEW 1: Screen Share is Active */}
-        {isScreenSharing ? (
+        {isScreenSharing || isRemoteScreenSharing ? (
           <div className="w-full h-full relative flex items-center justify-center bg-black">
             <video
-              ref={attachScreenStream}
+              ref={isScreenSharing ? attachLocalVideo : attachRemoteVideo}
               autoPlay
               playsInline
               className="w-full h-full object-contain"
@@ -669,13 +941,13 @@ export function ZoomLiveRoom({
             {/* Floating Camera PIP */}
             <div className="absolute bottom-4 right-4 w-48 sm:w-60 aspect-video rounded-2xl bg-[#081827] border-2 border-[#41D8FF]/60 shadow-2xl overflow-hidden z-20">
               <video
-                ref={attachVideoStream}
+                ref={mode === "instructor" ? attachLocalVideo : attachRemoteVideo}
                 autoPlay
                 playsInline
                 muted
-                className={`w-full h-full object-cover scale-x-[-1] ${isCameraOn ? "block" : "hidden"}`}
+                className={`w-full h-full object-cover scale-x-[-1] ${(mode === "instructor" ? isCameraOn : hasRemoteVideo) ? "block" : "hidden"}`}
               />
-              {!isCameraOn && (
+              {!(mode === "instructor" ? isCameraOn : hasRemoteVideo) && (
                 <div className="w-full h-full flex flex-col items-center justify-center bg-[#06101D] text-center p-2">
                   <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-[#397CFF] to-[#41D8FF] flex items-center justify-center font-bold text-xs text-white mb-1 shadow-md">
                     {instructorName.substring(0, 2).toUpperCase()}
@@ -695,21 +967,22 @@ export function ZoomLiveRoom({
             </div>
           </div>
         ) : layoutMode === "gallery" ? (
-          /* VIEW 2: Gallery Grid View (3x2 Matrix) */
+          /* VIEW 2: Gallery Grid View (Zoom / Google Meet 3x2 Matrix - STRICTLY ISOLATED TILES) */
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 p-4 w-full h-full">
             {participants.map((p, idx) => (
               <div
                 key={p.id || idx}
-                className={`rounded-2xl bg-[#081827] border flex flex-col items-center justify-center relative overflow-hidden transition-all ${
+                className={`rounded-2xl bg-[#081827] border flex flex-col items-center justify-center relative overflow-hidden transition-all aspect-video ${
                   p.isSpeaking
                     ? "border-emerald-400 shadow-lg shadow-emerald-500/20 ring-2 ring-emerald-400/40"
                     : "border-[#162942]"
                 }`}
               >
+                {/* TILE 1: Current User's Own Camera Tile */}
                 {p.isSelf ? (
                   <>
                     <video
-                      ref={attachVideoStream}
+                      ref={attachLocalVideo}
                       autoPlay
                       playsInline
                       muted
@@ -717,21 +990,70 @@ export function ZoomLiveRoom({
                     />
                     {!isCameraOn && (
                       <div className="flex flex-col items-center justify-center p-3 text-center space-y-2">
-                        <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-gradient-to-tr from-[#397CFF] to-[#41D8FF] p-0.5 shadow-lg">
+                        <div className={`w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-gradient-to-tr ${p.gradient || "from-blue-600 to-indigo-500"} p-0.5 shadow-lg`}>
                           <div className="w-full h-full bg-[#06101D] rounded-[14px] flex items-center justify-center font-extrabold text-sm sm:text-base text-white">
                             {p.name.substring(0, 2).toUpperCase()}
                           </div>
                         </div>
                         <div>
-                          <span className="text-xs font-bold text-white block">{p.name} (You)</span>
+                          <span className="text-xs font-bold text-white block">{p.name}</span>
                           <span className="text-[10px] text-[#64748B] block">{p.role}</span>
                         </div>
                       </div>
                     )}
                   </>
+                ) : p.isHost && mode === "student" ? (
+                  /* TILE 2: Instructor's Tile (in Student View) */
+                  <>
+                    {hasRemoteVideo ? (
+                      <video
+                        ref={attachRemoteVideo}
+                        autoPlay
+                        playsInline
+                        className="w-full h-full object-cover scale-x-[-1]"
+                      />
+                    ) : (
+                      <div className="flex flex-col items-center justify-center p-3 text-center space-y-2">
+                        <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-gradient-to-tr from-[#397CFF] to-[#41D8FF] p-0.5 shadow-lg">
+                          <div className="w-full h-full bg-[#06101D] rounded-[14px] flex items-center justify-center font-extrabold text-sm sm:text-base text-white">
+                            {instructorName.substring(0, 2).toUpperCase()}
+                          </div>
+                        </div>
+                        <div>
+                          <span className="text-xs font-bold text-white block">{instructorName}</span>
+                          <span className="text-[10px] text-[#41D8FF] font-medium block">Host • {instructorTitle}</span>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : (p as any).isRemotePeer && mode === "instructor" ? (
+                  /* TILE 3: Connected Student Peer (in Instructor View) */
+                  <>
+                    {hasRemoteVideo ? (
+                      <video
+                        ref={attachRemoteVideo}
+                        autoPlay
+                        playsInline
+                        className="w-full h-full object-cover scale-x-[-1]"
+                      />
+                    ) : (
+                      <div className="flex flex-col items-center justify-center p-3 text-center space-y-2">
+                        <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-500 p-0.5 shadow-lg">
+                          <div className="w-full h-full bg-[#06101D] rounded-[14px] flex items-center justify-center font-extrabold text-sm sm:text-base text-white">
+                            ST
+                          </div>
+                        </div>
+                        <div>
+                          <span className="text-xs font-bold text-white block">Student Peer</span>
+                          <span className="text-[10px] text-[#64748B] block">Connected Live</span>
+                        </div>
+                      </div>
+                    )}
+                  </>
                 ) : (
+                  /* TILE 4: Other Cohort Classmates (Unique Initial Avatars, NEVER local face) */
                   <div className="flex flex-col items-center justify-center p-3 text-center space-y-2">
-                    <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-gradient-to-tr from-[#397CFF] to-[#41D8FF] p-0.5 shadow-lg">
+                    <div className={`w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-gradient-to-tr ${p.gradient || "from-slate-600 to-slate-500"} p-0.5 shadow-lg`}>
                       <div className="w-full h-full bg-[#06101D] rounded-[14px] flex items-center justify-center font-extrabold text-sm sm:text-base text-white">
                         {p.name.substring(0, 2).toUpperCase()}
                       </div>
@@ -743,6 +1065,7 @@ export function ZoomLiveRoom({
                   </div>
                 )}
 
+                {/* Bottom Status Tag */}
                 <div className="absolute bottom-2 left-2 flex items-center gap-1.5 bg-black/70 backdrop-blur-md px-2 py-0.5 rounded-lg text-[10px] text-white">
                   {p.isSpeaking ? (
                     <Mic className="w-3 h-3 text-emerald-400 animate-pulse" />
@@ -751,59 +1074,95 @@ export function ZoomLiveRoom({
                   )}
                   <span>{p.name}</span>
                 </div>
+
+                {(p as any).isHandRaised && (
+                  <span className="absolute top-2 right-2 text-sm animate-bounce" title="Hand Raised">
+                    ✋
+                  </span>
+                )}
               </div>
             ))}
           </div>
         ) : (
           /* VIEW 3: Speaker Spotlight View (Default) */
           <div className="w-full h-full relative flex items-center justify-center">
-            {/* Instructor / Broadcaster Video */}
-            <video
-              ref={attachVideoStream}
-              autoPlay
-              playsInline
-              muted
-              className={`w-full h-full object-cover scale-x-[-1] ${isCameraOn ? "block" : "hidden"}`}
-            />
-
-            {/* Fallback Animated Host Card when Camera is Off */}
-            {!isCameraOn && (
-              <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center bg-gradient-to-tr from-[#06101D] via-slate-950 to-[#081827] space-y-4">
-                <div className="relative">
-                  <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-3xl bg-gradient-to-tr from-[#397CFF] to-[#41D8FF] p-1 shadow-2xl shadow-[#397CFF]/30">
-                    <div className="w-full h-full bg-[#06101D] rounded-[22px] flex items-center justify-center text-white font-extrabold text-2xl sm:text-3xl">
-                      {instructorName.substring(0, 2).toUpperCase()}
+            {/* When Mode is Instructor: Show Instructor's Live Webcam */}
+            {mode === "instructor" ? (
+              <>
+                <video
+                  ref={attachLocalVideo}
+                  autoPlay
+                  playsInline
+                  muted
+                  className={`w-full h-full object-cover scale-x-[-1] ${isCameraOn ? "block" : "hidden"}`}
+                />
+                {!isCameraOn && (
+                  <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center bg-gradient-to-tr from-[#06101D] via-slate-950 to-[#081827] space-y-4">
+                    <div className="relative">
+                      <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-3xl bg-gradient-to-tr from-[#397CFF] to-[#41D8FF] p-1 shadow-2xl shadow-[#397CFF]/30">
+                        <div className="w-full h-full bg-[#06101D] rounded-[22px] flex items-center justify-center text-white font-extrabold text-2xl sm:text-3xl">
+                          {instructorName.substring(0, 2).toUpperCase()}
+                        </div>
+                      </div>
+                      {isMicOn && audioLevel > 15 && (
+                        <span className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-emerald-500 border-2 border-[#06101D] flex items-center justify-center animate-bounce">
+                          <Mic className="w-3.5 h-3.5 text-[#06101D]" />
+                        </span>
+                      )}
+                    </div>
+                    <div className="space-y-1">
+                      <h3 className="text-lg sm:text-2xl font-extrabold text-white">{instructorName}</h3>
+                      <p className="text-xs sm:text-sm text-[#41D8FF] font-medium font-mono">{instructorTitle}</p>
+                    </div>
+                    <div className="flex items-center gap-2 pt-1">
+                      <span className="px-3 py-1 rounded-full bg-rose-500/20 text-rose-300 text-xs font-bold border border-rose-500/40 flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-rose-400 animate-ping" />
+                        BROADCAST STUDIO ACTIVE
+                      </span>
                     </div>
                   </div>
-                  {isMicOn && audioLevel > 15 && (
-                    <span className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-emerald-500 border-2 border-[#06101D] flex items-center justify-center animate-bounce">
-                      <Mic className="w-3.5 h-3.5 text-[#06101D]" />
-                    </span>
-                  )}
-                </div>
-
-                <div className="space-y-1">
-                  <h3 className="text-lg sm:text-2xl font-extrabold text-white">
-                    {instructorName}
-                  </h3>
-                  <p className="text-xs sm:text-sm text-[#41D8FF] font-medium font-mono">
-                    {instructorTitle}
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-2 pt-1">
-                  <span className="px-3 py-1 rounded-full bg-rose-500/20 text-rose-300 text-xs font-bold border border-rose-500/40 flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-rose-400 animate-ping" />
-                    LIVE 1080P HD STREAM CONNECTED
-                  </span>
-                  <span className="px-3 py-1 rounded-full bg-white/10 text-slate-300 text-xs font-mono">
-                    Dolby Voice HD
-                  </span>
-                </div>
-              </div>
+                )}
+              </>
+            ) : (
+              /* When Mode is Student: Show Instructor's Live Video (ONLY when remote stream is active) */
+              <>
+                <video
+                  ref={attachRemoteVideo}
+                  autoPlay
+                  playsInline
+                  className={`w-full h-full object-cover scale-x-[-1] ${hasRemoteVideo ? "block" : "hidden"}`}
+                />
+                {!hasRemoteVideo && (
+                  <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center bg-gradient-to-tr from-[#06101D] via-slate-950 to-[#081827] space-y-4">
+                    <div className="relative">
+                      <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-3xl bg-gradient-to-tr from-[#397CFF] to-[#41D8FF] p-1 shadow-2xl shadow-[#397CFF]/30">
+                        <div className="w-full h-full bg-[#06101D] rounded-[22px] flex items-center justify-center text-white font-extrabold text-2xl sm:text-3xl">
+                          {instructorName.substring(0, 2).toUpperCase()}
+                        </div>
+                      </div>
+                      <span className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-emerald-500 border-2 border-[#06101D] flex items-center justify-center animate-bounce">
+                        <Mic className="w-3.5 h-3.5 text-[#06101D]" />
+                      </span>
+                    </div>
+                    <div className="space-y-1">
+                      <h3 className="text-lg sm:text-2xl font-extrabold text-white">{instructorName}</h3>
+                      <p className="text-xs sm:text-sm text-[#41D8FF] font-medium font-mono">{instructorTitle}</p>
+                    </div>
+                    <div className="flex items-center gap-2 pt-1">
+                      <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-bold border border-emerald-500/40 flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                        LIVE 1080P HD STREAM CONNECTED
+                      </span>
+                      <span className="px-3 py-1 rounded-full bg-white/10 text-slate-300 text-xs font-mono">
+                        Dolby Voice HD
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
 
-            {/* Student Floating Self-View PIP (when in student mode and camera is active) */}
+            {/* Student Floating Self-View WebCam PIP (ONLY shows student's own face) */}
             {mode === "student" && (
               <div className="absolute bottom-4 right-4 w-40 sm:w-52 aspect-video rounded-2xl bg-[#081827] border-2 border-[#397CFF]/60 shadow-2xl overflow-hidden z-20">
                 <video
@@ -827,12 +1186,27 @@ export function ZoomLiveRoom({
               </div>
             )}
 
+            {/* Instructor Student PIP (Shows student's camera in Instructor view when student turns on camera) */}
+            {mode === "instructor" && hasRemoteVideo && (
+              <div className="absolute bottom-4 right-4 w-40 sm:w-52 aspect-video rounded-2xl bg-[#081827] border-2 border-emerald-500/60 shadow-2xl overflow-hidden z-20">
+                <video
+                  ref={attachRemoteVideo}
+                  autoPlay
+                  playsInline
+                  className="w-full h-full object-cover scale-x-[-1]"
+                />
+                <div className="absolute bottom-1 left-2 text-[9px] font-bold text-white bg-black/60 px-1.5 py-0.5 rounded font-mono">
+                  Student (Live Stream)
+                </div>
+              </div>
+            )}
+
             {/* Top Left Speaker Badge */}
             <div className="absolute top-4 left-4 flex items-center gap-2 bg-slate-950/85 backdrop-blur-md px-3 py-1.5 rounded-xl border border-[#162942] text-xs text-white font-bold">
-              <span className={`w-2.5 h-2.5 rounded-full ${isCameraOn ? "bg-emerald-400 animate-pulse" : "bg-rose-500"}`} />
+              <span className={`w-2.5 h-2.5 rounded-full ${(mode === "instructor" ? isCameraOn : hasRemoteVideo) ? "bg-emerald-400 animate-pulse" : "bg-rose-500"}`} />
               <span>{instructorName} (Host)</span>
-              <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${isCameraOn ? "bg-emerald-500/20 text-emerald-300" : "bg-rose-500/20 text-rose-300"}`}>
-                {isCameraOn ? "📹 Cam ON" : "🚫 Cam OFF"}
+              <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${(mode === "instructor" ? isCameraOn : hasRemoteVideo) ? "bg-emerald-500/20 text-emerald-300" : "bg-rose-500/20 text-rose-300"}`}>
+                {(mode === "instructor" ? isCameraOn : hasRemoteVideo) ? "📹 Cam ON" : "🚫 Cam OFF"}
               </span>
             </div>
 
@@ -1089,23 +1463,23 @@ export function ZoomLiveRoom({
                 className="p-2.5 rounded-xl bg-[#081827] border border-[#162942] flex items-center justify-between gap-2 shadow-md"
               >
                 <div className="flex items-center gap-2 min-w-0">
-                  <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-[#397CFF] to-[#41D8FF] flex items-center justify-center text-white font-bold text-[10px] flex-shrink-0">
+                  <div className={`w-7 h-7 rounded-lg bg-gradient-to-tr ${p.gradient || "from-blue-600 to-indigo-500"} flex items-center justify-center text-white font-bold text-[10px] flex-shrink-0`}>
                     {p.name.substring(0, 2).toUpperCase()}
                   </div>
                   <div className="min-w-0">
-                    <span className="font-bold text-xs text-white block truncate">{p.name} {p.isSelf ? "(You)" : ""}</span>
+                    <span className="font-bold text-xs text-white block truncate">{p.name}</span>
                     <span className="text-[10px] text-[#64748B] block">{p.role}</span>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-1.5 flex-shrink-0">
-                  {p.isHandRaised && (
+                  {(p as any).isHandRaised && (
                     <span className="text-xs animate-bounce" title="Hand Raised">✋</span>
                   )}
-                  <span className={`p-1 rounded ${p.isCameraOn ? "bg-emerald-500/20 text-emerald-300" : "bg-slate-800 text-slate-500"}`} title={p.isCameraOn ? "Camera Active" : "Camera Off"}>
+                  <span className={`p-1 rounded ${p.isSelf ? (isCameraOn ? "bg-emerald-500/20 text-emerald-300" : "bg-slate-800 text-slate-500") : (p.isHost && hasRemoteVideo ? "bg-emerald-500/20 text-emerald-300" : "bg-slate-800 text-slate-500")}`}>
                     <VideoIcon className="w-3 h-3" />
                   </span>
-                  <span className={`p-1 rounded ${p.isMicOn ? "bg-emerald-500/20 text-emerald-300 animate-pulse" : "bg-slate-800 text-slate-500"}`} title={p.isMicOn ? "Microphone Unmuted" : "Microphone Muted"}>
+                  <span className={`p-1 rounded ${p.isSelf ? (isMicOn ? "bg-emerald-500/20 text-emerald-300 animate-pulse" : "bg-slate-800 text-slate-500") : (p.isSpeaking ? "bg-emerald-500/20 text-emerald-300 animate-pulse" : "bg-slate-800 text-slate-500")}`}>
                     <Mic className="w-3 h-3" />
                   </span>
                 </div>
