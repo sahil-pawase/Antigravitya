@@ -909,13 +909,13 @@ export function ZoomLiveRoom({
     return `${m}:${s}`;
   };
 
-  // Build dynamic real participants list (strictly original joined attendees, NO duplicates, NO mock students)
+  // Build dynamic real participants list (strictly only Admin is Host, students are Participants)
   const participants = React.useMemo(() => {
-    // 1. Host Tile (Always present)
+    // 1. Host Tile (ONLY the Instructor / Admin)
     const hostTile = {
       id: "inst-1",
-      name: mode === "instructor" ? `${instructorName} (You)` : instructorName,
-      role: "Host / Lead Architect",
+      name: mode === "instructor" ? `${instructorName} (Host • You)` : `${instructorName} (Host)`,
+      role: "Host / Instructor",
       isSpeaking: mode === "instructor" ? (isMicOn && audioLevel > 15) : (hasRemoteAudio || remoteAudioLevel > 15),
       isSelf: mode === "instructor",
       isHost: true,
@@ -926,7 +926,7 @@ export function ZoomLiveRoom({
       const selfTile = {
         id: "stu-self",
         name: "You",
-        role: "Student (You)",
+        role: "Student (Participant)",
         isSpeaking: isMicOn && audioLevel > 15,
         isSelf: true,
         isHost: false,
@@ -939,7 +939,7 @@ export function ZoomLiveRoom({
         .map((p, idx) => ({
           id: p.id || `peer-${idx}`,
           name: p.name,
-          role: "Student",
+          role: "Student (Participant)",
           isSpeaking: p.isSpeaking || false,
           isSelf: false,
           isHost: false,
@@ -955,7 +955,7 @@ export function ZoomLiveRoom({
         .map((p, idx) => ({
           id: p.id || `stu-${idx}`,
           name: p.name || "Student Participant",
-          role: "Student",
+          role: "Student (Participant)",
           isSpeaking: p.isSpeaking || (hasRemoteAudio || remoteAudioLevel > 15),
           isSelf: false,
           isHost: false,
@@ -969,7 +969,7 @@ export function ZoomLiveRoom({
         realStudents.push({
           id: "stu-peer",
           name: "Student Participant",
-          role: "Student",
+          role: "Student (Participant)",
           isSpeaking: hasRemoteAudio || remoteAudioLevel > 15,
           isSelf: false,
           isHost: false,
