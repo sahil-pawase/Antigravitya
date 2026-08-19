@@ -782,9 +782,16 @@ export function ZoomLiveRoom({
           setTimeout(() => {
             setReactions((prev) => prev.filter((r) => r.id !== newReaction.id));
           }, 2500);
-        } else if (msg.type === "HAND_RAISE" && mode === "instructor" && msg.isRaised) {
-          setHandRaiseNotice(`✋ ${msg.studentName || "A student"} raised their hand to ask a question!`);
-          setTimeout(() => setHandRaiseNotice(null), 5000);
+        } else if (msg.type === "PEER_PRESENCE" && msg.role !== mode) {
+          // Immediately respond with our current media state and exchange offer
+          sendSignal("MEDIA_STATE", {
+            role: mode,
+            isCameraOn: isCameraOnRef.current,
+            isMicOn: isMicOnRef.current,
+          });
+          if (mode === "instructor") {
+            createAndSendOffer();
+          }
         } else {
           handleSignalMessage(msg);
         }
@@ -793,7 +800,7 @@ export function ZoomLiveRoom({
       console.warn("BroadcastChannel not supported");
     }
 
-    // 3. HTTP Server Signaling Poller (every 2.5s)
+    // 3. HTTP Server Signaling Poller (every 2s)
     const signalPollInterval = setInterval(async () => {
       try {
         const res = await fetch(`/api/live-class/signal?clientId=${clientIdRef.current}&since=${lastSignalTime}`);
@@ -805,9 +812,9 @@ export function ZoomLiveRoom({
           if (data.serverTime) lastSignalTime = data.serverTime;
         }
       } catch (e) {}
-    }, 2500);
+    }, 2000);
 
-    // 4. Register Call Presence with Server
+    // 4. Register Call Presence with Server & Announce to Peers
     const joinCall = async () => {
       try {
         const res = await fetch("/api/live-class", {
@@ -824,12 +831,22 @@ export function ZoomLiveRoom({
         if (data.success && data.state?.participants) {
           setLiveParticipants(data.state.participants);
         }
+
+        if (channelRef.current) {
+          channelRef.current.postMessage({
+            type: "PEER_PRESENCE",
+            from: clientIdRef.current,
+            role: mode,
+            isCameraOn: isCameraOnRef.current,
+            isMicOn: isMicOnRef.current,
+          });
+        }
       } catch (e) {}
     };
 
     joinCall();
 
-    // 5. Heartbeat Telemetry Loop (every 4s)
+    // 5. Heartbeat Telemetry Loop (every 2.5s)
     const heartbeatInterval = setInterval(async () => {
       try {
         const res = await fetch("/api/live-class", {
@@ -848,7 +865,7 @@ export function ZoomLiveRoom({
           setLiveParticipants(data.state.participants);
         }
       } catch (e) {}
-    }, 4000);
+    }, 2500);
 
     const timer = setInterval(() => {
       setRecordingSeconds((prev) => prev + 1);

@@ -157,12 +157,19 @@ export async function GET(req: NextRequest) {
     const state = getSafeLiveClassState();
 
     // Refresh enrolled students active status dynamically based on current real participants
-    const activeEmails = new Set(state.participants.map((p) => p.email).filter(Boolean));
+    const activeEmails = new Set(state.participants.map((p) => p.email?.toLowerCase()).filter(Boolean));
     const activeNames = new Set(state.participants.map((p) => p.name.toLowerCase()));
-    state.enrolledStudents = DEFAULT_ENROLLED_STUDENTS.map((s) => ({
-      ...s,
-      status: (activeEmails.has(s.email) || activeNames.has(s.name.toLowerCase())) ? "ONLINE_IN_CALL" : "ABSENT_NOT_JOINED",
-    }));
+    const activeIds = new Set(state.participants.map((p) => p.id));
+
+    state.enrolledStudents = state.enrolledStudents.map((s) => {
+      const isOnline = activeIds.has(s.id) ||
+        (s.email && activeEmails.has(s.email.toLowerCase())) ||
+        (s.name && activeNames.has(s.name.toLowerCase()));
+      return {
+        ...s,
+        status: isOnline ? "ONLINE_IN_CALL" : "ABSENT_NOT_JOINED",
+      };
+    });
 
     state.viewers = Math.max(state.participants.length, 1);
 
@@ -322,7 +329,27 @@ export async function POST(req: NextRequest) {
         state.participants.push(participantData);
       }
 
-      state.viewers = state.participants.length;
+      // Also ensure student is in enrolledStudents list and marked ONLINE_IN_CALL
+      if (role === "STUDENT") {
+        const studentEmail = session?.email || body.email;
+        const enrolledIdx = state.enrolledStudents.findIndex(
+          (s) => s.id === userId || (studentEmail && s.email.toLowerCase() === studentEmail.toLowerCase()) || s.name.toLowerCase() === fullName.toLowerCase()
+        );
+        if (enrolledIdx >= 0) {
+          state.enrolledStudents[enrolledIdx].status = "ONLINE_IN_CALL";
+        } else {
+          state.enrolledStudents.unshift({
+            id: userId,
+            name: fullName,
+            email: studentEmail || `${fullName.toLowerCase().replace(/\s+/g, ".")}@careertransformer.in`,
+            cohort: "Cohort 14 (Data Analytics)",
+            status: "ONLINE_IN_CALL",
+            avatar: participantData.avatar,
+          });
+        }
+      }
+
+      state.viewers = Math.max(state.participants.length, 1);
       return NextResponse.json({ success: true, state, participant: participantData });
     }
 

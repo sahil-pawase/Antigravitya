@@ -187,11 +187,20 @@ export default function AdminLiveStudioPage() {
   // Student Attendance Filtering
   const enrolledStudents: any[] = liveState?.enrolledStudents || [];
   const participants: any[] = liveState?.participants || [];
-  const activeParticipantMap = new Map<string, any>(participants.map((p: any) => [p.id, p]));
+
+  const findParticipant = (student: any) => {
+    return participants.find(
+      (p: any) =>
+        p &&
+        (p.id === student.id ||
+          (p.email && student.email && p.email.toLowerCase() === student.email.toLowerCase()) ||
+          (p.name && student.name && p.name.toLowerCase() === student.name.toLowerCase()))
+    );
+  };
 
   const filteredStudents = enrolledStudents.filter((student: any) => {
-    const participant: any = activeParticipantMap.get(student.id);
-    const isOnline = !!participant;
+    const participant: any = findParticipant(student);
+    const isOnline = !!participant || student.status === "ONLINE_IN_CALL";
 
     if (studentFilter === "ONLINE" && !isOnline) return false;
     if (studentFilter === "ABSENT" && isOnline) return false;
@@ -202,13 +211,13 @@ export default function AdminLiveStudioPage() {
       return (
         student.name.toLowerCase().includes(q) ||
         student.email.toLowerCase().includes(q) ||
-        student.cohort.toLowerCase().includes(q)
+        (student.cohort && student.cohort.toLowerCase().includes(q))
       );
     }
     return true;
   });
 
-  const onlineCount = participants.length;
+  const onlineCount = Math.max(participants.length, enrolledStudents.filter((s: any) => s.status === "ONLINE_IN_CALL").length);
   const totalCount = enrolledStudents.length;
   const absentCount = Math.max(0, totalCount - onlineCount);
   const attendancePct = totalCount > 0 ? Math.round((onlineCount / totalCount) * 100) : 0;
@@ -412,8 +421,8 @@ export default function AdminLiveStudioPage() {
             <tbody className="divide-y divide-[#162942] bg-[#081827]">
               {filteredStudents.length > 0 ? (
                 filteredStudents.map((student: any) => {
-                  const participant = activeParticipantMap.get(student.id);
-                  const isOnline = !!participant;
+                  const participant = findParticipant(student);
+                  const isOnline = !!participant || student.status === "ONLINE_IN_CALL";
 
                   return (
                     <tr key={student.id} className="hover:bg-[#0c223a]/50 transition-colors">
