@@ -62,8 +62,8 @@ export default function AdminLiveStudioPage() {
   // Instructor Chat Input
   const [chatInput, setChatInput] = useState("");
 
-  // Student Attendance Filter & Search
-  const [studentFilter, setStudentFilter] = useState<"ALL" | "ONLINE" | "ABSENT" | "HAND_RAISED">("ALL");
+  // Student Attendance Filter & Search - Defaults to joined students only
+  const [studentFilter, setStudentFilter] = useState<"ONLINE" | "HAND_RAISED" | "ALL" | "ABSENT">("ONLINE");
   const [searchQuery, setSearchQuery] = useState("");
 
   const fetchLiveState = async () => {
@@ -184,40 +184,25 @@ export default function AdminLiveStudioPage() {
     handleAction("PIN_NOTICE", { notice: noticeText.trim() });
   };
 
-  // Student Attendance Filtering
+  // Student Attendance Filtering - Show ONLY real joined students by default
+  const participants: any[] = (liveState?.participants || []).filter((p: any) => p && p.role === "STUDENT");
   const enrolledStudents: any[] = liveState?.enrolledStudents || [];
-  const participants: any[] = liveState?.participants || [];
 
-  const findParticipant = (student: any) => {
-    return participants.find(
-      (p: any) =>
-        p &&
-        (p.id === student.id ||
-          (p.email && student.email && p.email.toLowerCase() === student.email.toLowerCase()) ||
-          (p.name && student.name && p.name.toLowerCase() === student.name.toLowerCase()))
-    );
-  };
-
-  const filteredStudents = enrolledStudents.filter((student: any) => {
-    const participant: any = findParticipant(student);
-    const isOnline = !!participant || student.status === "ONLINE_IN_CALL";
-
-    if (studentFilter === "ONLINE" && !isOnline) return false;
-    if (studentFilter === "ABSENT" && isOnline) return false;
-    if (studentFilter === "HAND_RAISED" && (!participant || !participant.isHandRaised)) return false;
+  const filteredStudents = (studentFilter === "ALL" ? enrolledStudents : participants).filter((student: any) => {
+    if (studentFilter === "HAND_RAISED" && !student.isHandRaised) return false;
 
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       return (
         student.name.toLowerCase().includes(q) ||
-        student.email.toLowerCase().includes(q) ||
+        (student.email && student.email.toLowerCase().includes(q)) ||
         (student.cohort && student.cohort.toLowerCase().includes(q))
       );
     }
     return true;
   });
 
-  const onlineCount = Math.max(participants.length, enrolledStudents.filter((s: any) => s.status === "ONLINE_IN_CALL").length);
+  const onlineCount = participants.length;
   const totalCount = enrolledStudents.length;
   const absentCount = Math.max(0, totalCount - onlineCount);
   const attendancePct = totalCount > 0 ? Math.round((onlineCount / totalCount) * 100) : 0;
@@ -421,8 +406,11 @@ export default function AdminLiveStudioPage() {
             <tbody className="divide-y divide-[#162942] bg-[#081827]">
               {filteredStudents.length > 0 ? (
                 filteredStudents.map((student: any) => {
-                  const participant = findParticipant(student);
-                  const isOnline = !!participant || student.status === "ONLINE_IN_CALL";
+                  const isOnline = studentFilter === "ALL" ? student.status === "ONLINE_IN_CALL" : true;
+                  const isCam = !!student.isCameraOn;
+                  const isMic = !!student.isMicOn;
+                  const isHand = !!student.isHandRaised;
+                  const joinedTime = student.joinedAt || "Just now";
 
                   return (
                     <tr key={student.id} className="hover:bg-[#0c223a]/50 transition-colors">
@@ -430,20 +418,20 @@ export default function AdminLiveStudioPage() {
                       <td className="p-3.5 pl-4">
                         <div className="flex items-center gap-3">
                           <img
-                            src={student.avatar}
+                            src={student.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(student.name)}`}
                             alt={student.name}
                             className="w-9 h-9 rounded-xl border border-[#162942] bg-[#06101D]"
                           />
                           <div>
                             <span className="font-bold text-white block">{student.name}</span>
-                            <span className="text-[10px] text-[#64748B] font-mono">{student.email}</span>
+                            <span className="text-[10px] text-[#64748B] font-mono">{student.email || `${student.name.toLowerCase().replace(/\s+/g, ".")}@careertransformer.in`}</span>
                           </div>
                         </div>
                       </td>
 
                       {/* Cohort */}
                       <td className="p-3.5 text-[#CBD5E1] font-medium">
-                        {student.cohort}
+                        {student.cohort || "Cohort 14 (Data Analytics)"}
                       </td>
 
                       {/* Presence Status */}
@@ -451,7 +439,7 @@ export default function AdminLiveStudioPage() {
                         {isOnline ? (
                           <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-bold text-[11px]">
                             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-                            <span>IN CALL ({participant.joinedAt})</span>
+                            <span>IN CALL ({joinedTime})</span>
                           </div>
                         ) : (
                           <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400 font-semibold text-[11px]">
@@ -468,31 +456,31 @@ export default function AdminLiveStudioPage() {
                             {/* Camera Status */}
                             <span
                               className={`p-1.5 rounded-lg text-[10px] font-bold flex items-center gap-1 ${
-                                participant.isCameraOn
+                                isCam
                                   ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
                                   : "bg-[#06101D] text-[#64748B] border border-[#162942]"
                               }`}
-                              title={participant.isCameraOn ? "Webcam Video is Active" : "Webcam Video is Off"}
+                              title={isCam ? "Webcam Video is Active" : "Webcam Video is Off"}
                             >
                               <Video className="w-3 h-3" />
-                              <span className="hidden sm:inline">{participant.isCameraOn ? "Cam ON" : "Off"}</span>
+                              <span className="hidden sm:inline">{isCam ? "Cam ON" : "Off"}</span>
                             </span>
 
                             {/* Mic Status */}
                             <span
                               className={`p-1.5 rounded-lg text-[10px] font-bold flex items-center gap-1 ${
-                                participant.isMicOn
+                                isMic
                                   ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 animate-pulse"
                                   : "bg-[#06101D] text-[#64748B] border border-[#162942]"
                               }`}
-                              title={participant.isMicOn ? "Microphone is Unmuted (Speaking)" : "Microphone is Muted"}
+                              title={isMic ? "Microphone is Unmuted (Speaking)" : "Microphone is Muted"}
                             >
                               <Mic className="w-3 h-3" />
-                              <span className="hidden sm:inline">{participant.isMicOn ? "Mic ON" : "Muted"}</span>
+                              <span className="hidden sm:inline">{isMic ? "Mic ON" : "Muted"}</span>
                             </span>
 
                             {/* Hand Raised */}
-                            {participant.isHandRaised && (
+                            {isHand && (
                               <span className="p-1.5 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[10px] font-extrabold flex items-center gap-1 animate-bounce">
                                 <span>✋ Hand Up</span>
                               </span>
@@ -507,7 +495,7 @@ export default function AdminLiveStudioPage() {
                       <td className="p-3.5 pr-4 text-right">
                         {isOnline ? (
                           <div className="flex items-center justify-end gap-1.5">
-                            {participant.isMicOn && (
+                            {isMic && (
                               <button
                                 type="button"
                                 onClick={() => handleAction("MUTE_STUDENT", { studentId: student.id })}
@@ -518,7 +506,7 @@ export default function AdminLiveStudioPage() {
                               </button>
                             )}
 
-                            {participant.isHandRaised && (
+                            {isHand && (
                               <button
                                 type="button"
                                 onClick={() => handleAction("LOWER_HAND", { studentId: student.id })}
@@ -553,8 +541,12 @@ export default function AdminLiveStudioPage() {
                 })
               ) : (
                 <tr>
-                  <td colSpan={5} className="p-8 text-center text-[#64748B] text-xs">
-                    No candidates match the selected filter or search query.
+                  <td colSpan={5} className="p-8 text-center text-[#94A3B8] text-xs">
+                    <div className="flex flex-col items-center justify-center space-y-2">
+                      <Users className="w-8 h-8 text-[#64748B] opacity-50" />
+                      <span className="font-semibold text-white">No students currently in this live meeting.</span>
+                      <span className="text-[#64748B] text-[11px]">When candidates open their dashboard classroom, they will immediately appear here in real-time.</span>
+                    </div>
                   </td>
                 </tr>
               )}
