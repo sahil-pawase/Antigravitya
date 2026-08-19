@@ -479,13 +479,26 @@ export function AdminAssignmentReviewClient({
   };
 
   const stopLiveAdminTest = () => {
-    if (liveStreamRef.current) {
-      liveStreamRef.current.getTracks().forEach((t) => t.stop());
-      liveStreamRef.current = null;
-    }
-    if (liveVideoRef.current) {
-      liveVideoRef.current.srcObject = null;
-    }
+    try {
+      if (liveStreamRef.current) {
+        liveStreamRef.current.getTracks().forEach((t) => {
+          t.stop();
+          t.enabled = false;
+        });
+        liveStreamRef.current = null;
+      }
+      if (liveVideoRef.current) {
+        const srcObj = liveVideoRef.current.srcObject as MediaStream;
+        if (srcObj && srcObj.getTracks) {
+          srcObj.getTracks().forEach((t) => {
+            t.stop();
+            t.enabled = false;
+          });
+        }
+        liveVideoRef.current.srcObject = null;
+        liveVideoRef.current.pause();
+      }
+    } catch (e) {}
     setIsLiveTesting(false);
     setLiveTestError(null);
   };
@@ -500,27 +513,32 @@ export function AdminAssignmentReviewClient({
       const gain = ctx.createGain();
 
       osc.type = "sine";
-      osc.frequency.setValueAtTime(320, ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(640, ctx.currentTime + 0.3);
-      osc.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.7);
+      osc.frequency.setValueAtTime(440, ctx.currentTime); // 440 Hz (A4 note)
+      osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.3);
 
-      gain.gain.setValueAtTime(0.08, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.8);
+      gain.gain.setValueAtTime(0.3, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
 
       osc.connect(gain);
       gain.connect(ctx.destination);
+
       osc.start();
-      osc.stop(ctx.currentTime + 0.8);
+      osc.stop(ctx.currentTime + 0.3);
     } catch (err) {
-      console.warn("Audio synthesis error:", err);
+      console.warn("Synthesizer tone playback failed:", err);
     }
   };
 
-  // Audio player simulation effect
   useEffect(() => {
-    let interval: NodeJS.Timeout;
+    if (!selectedSub) {
+      stopLiveAdminTest();
+      setIsPlayingAudio(false);
+    }
+  }, [selectedSub]);
+
+  useEffect(() => {
+    let interval: NodeJS.Timeout | null = null;
     if (isPlayingAudio) {
-      playSoundEffect();
       interval = setInterval(() => {
         setAudioPlayProgress((prev) => {
           if (prev >= 100) {

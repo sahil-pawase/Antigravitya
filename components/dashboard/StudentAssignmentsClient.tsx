@@ -429,6 +429,9 @@ export function StudentAssignmentsClient({
   const violationsRef = useRef<Array<{ type: string; timestamp: string; description: string }>>([]);
 
   // Refs for MediaStream & Web Audio & Telemetry & Snapshots & Real Audio Recording
+  const isAssessmentOpenRef = useRef<boolean>(false);
+  const isSubmittedRef = useRef<boolean>(false);
+  const durationRef = useRef<number>(0);
   const videoStreamRef = useRef<MediaStream | null>(null);
   const audioStreamRef = useRef<MediaStream | null>(null);
   const videoElementRef = useRef<HTMLVideoElement | null>(null);
@@ -512,8 +515,15 @@ export function StudentAssignmentsClient({
     try {
       setMediaError(null);
       if (videoStreamRef.current) {
-        videoStreamRef.current.getTracks().forEach((t) => t.stop());
+        videoStreamRef.current.getTracks().forEach((t) => {
+          t.stop();
+          t.enabled = false;
+        });
+        videoStreamRef.current = null;
       }
+
+      if (!isAssessmentOpenRef.current || isSubmittedRef.current) return;
+
       const deviceIdToUse = targetDeviceId || selectedVideoDeviceId;
       const constraints: MediaStreamConstraints = {
         video: deviceIdToUse
@@ -521,14 +531,25 @@ export function StudentAssignmentsClient({
           : { width: { ideal: 640 }, height: { ideal: 480 } },
       };
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
+
+      // If user closed or submitted while getUserMedia was resolving, stop immediately!
+      if (!isAssessmentOpenRef.current || isSubmittedRef.current) {
+        stream.getTracks().forEach((t) => {
+          t.stop();
+          t.enabled = false;
+        });
+        return;
+      }
+
       videoStreamRef.current = stream;
       setIsCameraActive(true);
       if (videoElementRef.current) {
         videoElementRef.current.srcObject = stream;
         videoElementRef.current.play().then(() => {
-          // Take initial start photo after 2.5 seconds
           setTimeout(() => {
-            captureProctoringSnapshot("Exam Initialized • Student Face Verified");
+            if (isAssessmentOpenRef.current && !isSubmittedRef.current) {
+              captureProctoringSnapshot("Exam Initialized • Student Face Verified");
+            }
           }, 2500);
         }).catch(() => {});
       }
@@ -539,35 +560,75 @@ export function StudentAssignmentsClient({
     }
   };
 
-  const stopCamera = () => {
-    if (videoStreamRef.current) {
-      videoStreamRef.current.getTracks().forEach((t) => t.stop());
-      videoStreamRef.current = null;
-    }
-    if (videoElementRef.current) {
-      videoElementRef.current.srcObject = null;
+  const stopCamera = useCallback(() => {
+    try {
+      if (videoStreamRef.current) {
+        const tracks = videoStreamRef.current.getTracks();
+        tracks.forEach((t) => {
+          try {
+            t.stop();
+            t.enabled = false;
+          } catch (e) {}
+        });
+        videoStreamRef.current = null;
+      }
+      if (videoElementRef.current) {
+        try {
+          const srcObj = videoElementRef.current.srcObject as MediaStream | null;
+          if (srcObj && srcObj.getTracks) {
+            srcObj.getTracks().forEach((t) => {
+              try {
+                t.stop();
+                t.enabled = false;
+              } catch (e) {}
+            });
+          }
+          videoElementRef.current.srcObject = null;
+          videoElementRef.current.pause();
+        } catch (e) {}
+      }
+    } catch (e) {
+      console.warn("Error stopping camera:", e);
     }
     setIsCameraActive(false);
-  };
+  }, []);
 
   const startAudio = async (targetDeviceId?: string) => {
     try {
       setMediaError(null);
       if (audioStreamRef.current) {
-        audioStreamRef.current.getTracks().forEach((t) => t.stop());
+        audioStreamRef.current.getTracks().forEach((t) => {
+          t.stop();
+          t.enabled = false;
+        });
+        audioStreamRef.current = null;
       }
       if (audioContextRef.current) {
         audioContextRef.current.close().catch(() => {});
+        audioContextRef.current = null;
       }
       if (animFrameRef.current) {
         cancelAnimationFrame(animFrameRef.current);
+        animFrameRef.current = null;
       }
+
+      if (!isAssessmentOpenRef.current || isSubmittedRef.current) return;
 
       const deviceIdToUse = targetDeviceId || selectedAudioDeviceId;
       const constraints: MediaStreamConstraints = {
         audio: deviceIdToUse ? { deviceId: { exact: deviceIdToUse } } : true,
       };
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
+
+      // If user closed or submitted while getUserMedia was resolving, stop immediately!
+      if (!isAssessmentOpenRef.current || isSubmittedRef.current) {
+        stream.getTracks().forEach((t) => {
+          t.stop();
+          t.enabled = false;
+        });
+        return;
+      }
+
       audioStreamRef.current = stream;
       setIsMicActive(true);
 
@@ -611,7 +672,7 @@ export function StudentAssignmentsClient({
 
         let lastSampleTime = 0;
         const updateLevel = (timestamp: number) => {
-          if (!analyserRef.current) return;
+          if (!analyserRef.current || !isAssessmentOpenRef.current || isSubmittedRef.current) return;
           analyserRef.current.getByteFrequencyData(dataArray);
           let sum = 0;
           for (let i = 0; i < bufferLength; i++) {
@@ -638,27 +699,46 @@ export function StudentAssignmentsClient({
     }
   };
 
-  const stopAudio = () => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
-      try {
-        mediaRecorderRef.current.stop();
-      } catch (e) {}
-    }
-    if (audioStreamRef.current) {
-      audioStreamRef.current.getTracks().forEach((t) => t.stop());
-      audioStreamRef.current = null;
-    }
-    if (animFrameRef.current) {
-      cancelAnimationFrame(animFrameRef.current);
-      animFrameRef.current = null;
-    }
-    if (audioContextRef.current && audioContextRef.current.state !== "closed") {
-      audioContextRef.current.close().catch(() => {});
-      audioContextRef.current = null;
+  const stopAudio = useCallback(() => {
+    try {
+      if (mediaRecorderRef.current) {
+        try {
+          if (mediaRecorderRef.current.state !== "inactive") {
+            mediaRecorderRef.current.stop();
+          }
+        } catch (e) {}
+        mediaRecorderRef.current = null;
+      }
+      if (audioStreamRef.current) {
+        const tracks = audioStreamRef.current.getTracks();
+        tracks.forEach((t) => {
+          try {
+            t.stop();
+            t.enabled = false;
+          } catch (e) {}
+        });
+        audioStreamRef.current = null;
+      }
+      if (animFrameRef.current) {
+        try {
+          cancelAnimationFrame(animFrameRef.current);
+        } catch (e) {}
+        animFrameRef.current = null;
+      }
+      if (audioContextRef.current) {
+        try {
+          if (audioContextRef.current.state !== "closed") {
+            audioContextRef.current.close().catch(() => {});
+          }
+        } catch (e) {}
+        audioContextRef.current = null;
+      }
+    } catch (e) {
+      console.warn("Error stopping audio:", e);
     }
     setIsMicActive(false);
     setAudioVolumeLevel(0);
-  };
+  }, []);
 
   const stopAllMedia = useCallback(() => {
     stopCamera();
@@ -667,7 +747,7 @@ export function StudentAssignmentsClient({
       clearInterval(durationTimerRef.current);
       durationTimerRef.current = null;
     }
-  }, []);
+  }, [stopCamera, stopAudio]);
 
   const formatTimer = (seconds: number) => {
     const m = Math.floor(seconds / 60);
@@ -679,7 +759,7 @@ export function StudentAssignmentsClient({
     (type: string, reason: string) => {
       if (isSubmitted || isTerminatedByCheating) return;
 
-      const timeStr = formatTimer(assessmentDuration);
+      const timeStr = formatTimer(durationRef.current);
       violationsRef.current.push({
         type,
         timestamp: timeStr,
@@ -705,7 +785,7 @@ export function StudentAssignmentsClient({
         return next;
       });
     },
-    [isSubmitted, isTerminatedByCheating, assessmentDuration, captureProctoringSnapshot]
+    [isSubmitted, isTerminatedByCheating, captureProctoringSnapshot]
   );
 
   const toggleFullscreen = async () => {
@@ -723,6 +803,15 @@ export function StudentAssignmentsClient({
   };
 
   useEffect(() => {
+    isAssessmentOpenRef.current = isAssessmentOpen;
+    isSubmittedRef.current = isSubmitted;
+    if (isSubmitted || !isAssessmentOpen) {
+      stopAllMedia();
+    }
+  }, [isAssessmentOpen, isSubmitted, stopAllMedia]);
+
+  useEffect(() => {
+    isAssessmentOpenRef.current = isAssessmentOpen;
     if (!isAssessmentOpen) {
       // Ensure Dashboard is strictly normal view (exit fullscreen immediately)
       if (typeof document !== "undefined" && document.fullscreenElement && document.exitFullscreen) {
@@ -731,6 +820,7 @@ export function StudentAssignmentsClient({
       setIsFullscreen(false);
       stopAllMedia();
       setAssessmentDuration(0);
+      durationRef.current = 0;
       setTabSwitchCount(0);
       setCopyAttemptCount(0);
       setFullscreenViolationCount(0);
@@ -742,6 +832,7 @@ export function StudentAssignmentsClient({
       setMediaError(null);
     } else {
       setAssessmentDuration(0);
+      durationRef.current = 0;
       setTabSwitchCount(0);
       setCopyAttemptCount(0);
       setFullscreenViolationCount(0);
@@ -760,6 +851,7 @@ export function StudentAssignmentsClient({
       durationTimerRef.current = setInterval(() => {
         setAssessmentDuration((prev) => {
           const next = prev + 1;
+          durationRef.current = next;
           // Capture periodic snapshots at 45s, 90s, 180s
           if (next === 45) {
             captureProctoringSnapshot("Periodic 45-Second Photo Verification");
@@ -779,16 +871,16 @@ export function StudentAssignmentsClient({
 
       // 1. Tab Switching & Focus Loss Prevention (Instant Auto-Submit on Tab Switch)
       const handleVisibilityChange = () => {
-        if (document.hidden && isAssessmentOpen && !isSubmitted && !isTerminatedByCheating) {
+        if (document.hidden && isAssessmentOpenRef.current && !isSubmittedRef.current) {
           setTabSwitchCount((prev) => prev + 1);
           setIsTerminatedByCheating(true);
           violationsRef.current.push({
             type: "TAB_SWITCH_TERMINATION",
-            timestamp: formatTimer(assessmentDuration),
+            timestamp: formatTimer(durationRef.current),
             description: "CRITICAL VIOLATION: Student switched tabs / navigated away. Test was automatically submitted and disqualified.",
           });
           activityEventsRef.current.push(
-            `🚨 CRITICAL CHEATING: Student switched tabs at ${formatTimer(assessmentDuration)}. Exam automatically submitted.`
+            `🚨 CRITICAL CHEATING: Student switched tabs at ${formatTimer(durationRef.current)}. Exam automatically submitted.`
           );
           captureProctoringSnapshot("🚨 Cheating Violation: Switched Browser Tab / Navigated Away");
           calculateAndSubmitAssessment(true);
@@ -796,16 +888,16 @@ export function StudentAssignmentsClient({
       };
 
       const handleWindowBlur = () => {
-        if (!document.hidden && isAssessmentOpen && !isSubmitted && !isTerminatedByCheating) {
+        if (!document.hidden && isAssessmentOpenRef.current && !isSubmittedRef.current) {
           setTabSwitchCount((prev) => prev + 1);
           setIsTerminatedByCheating(true);
           violationsRef.current.push({
             type: "WINDOW_BLUR_TERMINATION",
-            timestamp: formatTimer(assessmentDuration),
+            timestamp: formatTimer(durationRef.current),
             description: "CRITICAL VIOLATION: Exam window lost focus (split-screen / app switch). Test automatically submitted.",
           });
           activityEventsRef.current.push(
-            `🚨 CRITICAL CHEATING: Window blur detected at ${formatTimer(assessmentDuration)}. Exam automatically submitted.`
+            `🚨 CRITICAL CHEATING: Window blur detected at ${formatTimer(durationRef.current)}. Exam automatically submitted.`
           );
           captureProctoringSnapshot("🚨 Cheating Violation: Window Blur / Lost Focus");
           calculateAndSubmitAssessment(true);
@@ -857,16 +949,16 @@ export function StudentAssignmentsClient({
       const handleFullscreenChange = () => {
         const inFs = !!document.fullscreenElement;
         setIsFullscreen(inFs);
-        if (!inFs && isAssessmentOpen && !isSubmitted && !isTerminatedByCheating) {
+        if (!inFs && isAssessmentOpenRef.current && !isSubmittedRef.current) {
           setFullscreenViolationCount((prev) => prev + 1);
           setIsTerminatedByCheating(true);
           violationsRef.current.push({
             type: "FULLSCREEN_EXIT_TERMINATION",
-            timestamp: formatTimer(assessmentDuration),
+            timestamp: formatTimer(durationRef.current),
             description: "CRITICAL VIOLATION: Exited full-screen exam mode. Test was automatically submitted.",
           });
           activityEventsRef.current.push(
-            `🚨 CRITICAL CHEATING: Exited fullscreen mode at ${formatTimer(assessmentDuration)}. Exam automatically submitted.`
+            `🚨 CRITICAL CHEATING: Exited fullscreen mode at ${formatTimer(durationRef.current)}. Exam automatically submitted.`
           );
           captureProctoringSnapshot("🚨 Cheating Violation: Exited Full Screen Mode");
           calculateAndSubmitAssessment(true);
@@ -894,7 +986,7 @@ export function StudentAssignmentsClient({
         stopAllMedia();
       };
     }
-  }, [isAssessmentOpen, stopAllMedia, captureProctoringSnapshot, triggerCheatingViolation, isSubmitted, isTerminatedByCheating, assessmentDuration]);
+  }, [isAssessmentOpen, stopAllMedia, captureProctoringSnapshot, triggerCheatingViolation]);
 
   const startAssessment = async (a: AssignmentWithSubmission) => {
     setActiveAssignment(a);
@@ -999,6 +1091,9 @@ export function StudentAssignmentsClient({
     } catch (e) {
       console.warn("Error finalizing audio blob:", e);
     }
+
+    // Stop all camera and microphone hardware tracks IMMEDIATELY upon test submission!
+    stopAllMedia();
 
     setAssessmentResult(resultData);
     setIsSubmitted(true);
@@ -1221,9 +1316,13 @@ ${JSON.stringify(structuredTelemetry)}
         <Modal
           isOpen={isAssessmentOpen}
           onClose={() => {
+            isAssessmentOpenRef.current = false;
+            isSubmittedRef.current = true;
+            stopAllMedia();
             if (typeof document !== "undefined" && document.fullscreenElement && document.exitFullscreen) {
               document.exitFullscreen().catch(() => {});
             }
+            setIsFullscreen(false);
             setIsAssessmentOpen(false);
           }}
           title={activeAssignment.title}
@@ -1629,6 +1728,10 @@ ${JSON.stringify(structuredTelemetry)}
                         <button
                           type="button"
                           onClick={() => {
+                            stopAllMedia();
+                            if (typeof document !== "undefined" && document.fullscreenElement && document.exitFullscreen) {
+                              document.exitFullscreen().catch(() => {});
+                            }
                             setIsAssessmentOpen(false);
                             window.location.reload();
                           }}
@@ -1646,28 +1749,30 @@ ${JSON.stringify(structuredTelemetry)}
         </Modal>
       )}
 
-      {/* Hidden offscreen video element to ensure active webcam frame rendering for canvas snapshots */}
-      <video
-        ref={(el) => {
-          videoElementRef.current = el;
-          if (el && videoStreamRef.current && el.srcObject !== videoStreamRef.current) {
-            el.srcObject = videoStreamRef.current;
-            el.play().catch(() => {});
-          }
-        }}
-        autoPlay
-        playsInline
-        muted
-        style={{
-          position: "fixed",
-          top: "-9999px",
-          left: "-9999px",
-          width: "320px",
-          height: "240px",
-          pointerEvents: "none",
-          opacity: 0,
-        }}
-      />
+      {/* Hidden offscreen video element to ensure active webcam frame rendering for canvas snapshots ONLY while exam is active */}
+      {isAssessmentOpen && !isSubmitted && (
+        <video
+          ref={(el) => {
+            videoElementRef.current = el;
+            if (el && videoStreamRef.current && el.srcObject !== videoStreamRef.current) {
+              el.srcObject = videoStreamRef.current;
+              el.play().catch(() => {});
+            }
+          }}
+          autoPlay
+          playsInline
+          muted
+          style={{
+            position: "fixed",
+            top: "-9999px",
+            left: "-9999px",
+            width: "320px",
+            height: "240px",
+            pointerEvents: "none",
+            opacity: 0,
+          }}
+        />
+      )}
     </div>
   );
 }
