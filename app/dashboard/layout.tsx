@@ -15,6 +15,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { LogoutButton } from "@/components/auth/LogoutButton";
+import { LiveCallNotificationBanner } from "@/components/live/LiveCallNotificationBanner";
 
 export default async function DashboardLayout({
   children,
@@ -125,7 +126,8 @@ export default async function DashboardLayout({
       </header>
 
       {/* Main Content Viewport */}
-      <main className="flex-1 p-4 sm:p-8 overflow-y-auto max-w-7xl mx-auto w-full">
+      <main className="flex-1 p-4 sm:p-8 overflow-y-auto max-w-7xl mx-auto w-full relative">
+        <LiveCallNotificationBanner />
         {children}
       </main>
     </div>

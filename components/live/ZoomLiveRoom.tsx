@@ -64,6 +64,9 @@ export function ZoomLiveRoom({
   const [audioLevel, setAudioLevel] = useState(0);
   const [permissionError, setPermissionError] = useState<string | null>(null);
   const [recordingSeconds, setRecordingSeconds] = useState(1340); // 22 mins
+  const [isHandRaised, setIsHandRaised] = useState(false);
+  const [reactions, setReactions] = useState<Array<{ id: number; emoji: string; left: number }>>([]);
+  const [handRaiseNotice, setHandRaiseNotice] = useState<string | null>(null);
 
   // Stream Refs
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -101,20 +104,119 @@ export function ZoomLiveRoom({
     }
   };
 
+  const sendReaction = (emoji: string) => {
+    const newReaction = {
+      id: Date.now() + Math.random(),
+      emoji,
+      left: 10 + Math.random() * 80,
+    };
+    setReactions((prev) => [...prev, newReaction]);
+    setTimeout(() => {
+      setReactions((prev) => prev.filter((r) => r.id !== newReaction.id));
+    }, 2500);
+
+    if (channelRef.current) {
+      channelRef.current.postMessage({
+        type: "REACTION",
+        emoji,
+      });
+    }
+  };
+
+  const toggleHandRaise = () => {
+    const next = !isHandRaised;
+    setIsHandRaised(next);
+    if (next) {
+      setHandRaiseNotice("✋ You raised your hand! The instructor will invite you to speak.");
+      setTimeout(() => setHandRaiseNotice(null), 4000);
+    }
+    if (channelRef.current) {
+      channelRef.current.postMessage({
+        type: "HAND_RAISE",
+        isRaised: next,
+        studentName: mode === "student" ? "Student" : instructorName,
+      });
+    }
+  };
+
+  // Dynamic connected participants state
+  const [liveParticipants, setLiveParticipants] = useState<any[]>([]);
+  const [isParticipantsModalOpen, setIsParticipantsModalOpen] = useState(false);
+
   useEffect(() => {
     try {
       channelRef.current = new BroadcastChannel("career_transformer_zoom_room");
       channelRef.current.onmessage = (event) => {
-        const { type, data } = event.data;
+        const { type, data, emoji, isRaised, studentName } = event.data || {};
         if (type === "INSTRUCTOR_STREAM_STATE" && mode === "student") {
-          if (data.isCameraOn !== undefined) setIsCameraOn(data.isCameraOn);
-          if (data.isScreenSharing !== undefined) setIsScreenSharing(data.isScreenSharing);
-          if (data.isMicOn !== undefined) setIsMicOn(data.isMicOn);
+          if (data?.isCameraOn !== undefined) setIsCameraOn(data.isCameraOn);
+          if (data?.isScreenSharing !== undefined) setIsScreenSharing(data.isScreenSharing);
+          if (data?.isMicOn !== undefined) setIsMicOn(data.isMicOn);
+        } else if (type === "REACTION" && emoji) {
+          const newReaction = {
+            id: Date.now() + Math.random(),
+            emoji,
+            left: 10 + Math.random() * 80,
+          };
+          setReactions((prev) => [...prev, newReaction]);
+          setTimeout(() => {
+            setReactions((prev) => prev.filter((r) => r.id !== newReaction.id));
+          }, 2500);
+        } else if (type === "HAND_RAISE" && mode === "instructor" && isRaised) {
+          setHandRaiseNotice(`✋ ${studentName || "A student"} raised their hand to ask a question!`);
+          setTimeout(() => setHandRaiseNotice(null), 5000);
         }
       };
     } catch (e) {
       console.warn("BroadcastChannel not supported");
     }
+
+    // Register Call Presence via API
+    const joinCallApi = async () => {
+      try {
+        const res = await fetch("/api/live-class", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "JOIN_CALL",
+            isCameraOn,
+            isMicOn,
+            isHandRaised,
+          }),
+        });
+        const data = await res.json();
+        if (data.success && data.state?.participants) {
+          setLiveParticipants(data.state.participants);
+        }
+      } catch (e) {
+        console.warn("Join call API error:", e);
+      }
+    };
+
+    joinCallApi();
+
+    // Heartbeat & Telemetry Sync Loop
+    const heartbeatInterval = setInterval(async () => {
+      try {
+        const res = await fetch("/api/live-class", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "HEARTBEAT",
+            isCameraOn,
+            isMicOn,
+            isHandRaised,
+            isSpeaking: isMicOn && audioLevel > 15,
+          }),
+        });
+        const data = await res.json();
+        if (data.success && data.state?.participants) {
+          setLiveParticipants(data.state.participants);
+        }
+      } catch (e) {
+        // Quiet heartbeat error
+      }
+    }, 4000);
 
     const timer = setInterval(() => {
       setRecordingSeconds((prev) => prev + 1);
@@ -122,11 +224,23 @@ export function ZoomLiveRoom({
 
     return () => {
       clearInterval(timer);
+      clearInterval(heartbeatInterval);
       stopMediaTracks();
+
+      // Notify server of leave
+      try {
+        fetch("/api/live-class", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "LEAVE_CALL" }),
+          keepalive: true,
+        }).catch(() => {});
+      } catch (e) {}
+
       if (channelRef.current) channelRef.current.close();
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
     };
-  }, [mode]);
+  }, [mode, isCameraOn, isMicOn, isHandRaised, audioLevel]);
 
   const formatTime = (secs: number) => {
     const m = Math.floor(secs / 60).toString().padStart(2, "0");
@@ -318,14 +432,30 @@ export function ZoomLiveRoom({
     }
   };
 
-  const participants = [
-    { name: instructorName, role: "Host / Lead Architect", isSpeaking: isMicOn && audioLevel > 15, isSelf: mode === "instructor" },
-    { name: "Neha Gupta", role: "Student", isSpeaking: false },
-    { name: "Rohan Verma", role: "Student", isSpeaking: false },
-    { name: "Priya Sharma", role: "Student", isSpeaking: false },
-    { name: "Aarav Patel", role: "Teaching Assistant", isSpeaking: false },
-    { name: "Ananya Roy", role: "Student", isSpeaking: false },
+  const defaultParticipants = [
+    { id: "inst-1", name: instructorName, role: "Host / Lead Architect", isSpeaking: isMicOn && audioLevel > 15, isSelf: mode === "instructor", isCameraOn, isMicOn, isHandRaised: false },
+    { id: "stu-1", name: "Neha Gupta", role: "Student", isSpeaking: false, isSelf: false, isCameraOn: true, isMicOn: false, isHandRaised: false },
+    { id: "stu-2", name: "Rohan Verma", role: "Student", isSpeaking: false, isSelf: false, isCameraOn: false, isMicOn: false, isHandRaised: true },
+    { id: "stu-3", name: "Priya Sharma", role: "Student", isSpeaking: false, isSelf: false, isCameraOn: true, isMicOn: true, isHandRaised: false },
+    { id: "stu-4", name: "Aarav Patel", role: "Teaching Assistant", isSpeaking: false, isSelf: false, isCameraOn: false, isMicOn: false, isHandRaised: false },
+    { id: "stu-5", name: "Ananya Roy", role: "Student", isSpeaking: false, isSelf: false, isCameraOn: false, isMicOn: false, isHandRaised: false },
   ];
+
+  const participants = liveParticipants.length > 0
+    ? [
+        { id: "inst-1", name: instructorName, role: "Host / Lead Architect", isSpeaking: isMicOn && audioLevel > 15, isSelf: mode === "instructor", isCameraOn, isMicOn, isHandRaised: false },
+        ...liveParticipants.map((p) => ({
+          id: p.id,
+          name: p.name,
+          role: p.role === "INSTRUCTOR" ? "Instructor" : "Student",
+          isSpeaking: p.isSpeaking || false,
+          isSelf: mode === "student" && p.role === "STUDENT",
+          isCameraOn: p.isCameraOn,
+          isMicOn: p.isMicOn,
+          isHandRaised: p.isHandRaised,
+        })),
+      ]
+    : defaultParticipants;
 
   return (
     <div
@@ -635,6 +765,26 @@ export function ZoomLiveRoom({
             <span className="text-[10px] text-emerald-300 font-mono font-bold">LIVE MIC</span>
           </div>
         )}
+
+        {/* Hand Raise Banner Notice */}
+        {handRaiseNotice && (
+          <div className="absolute top-14 left-1/2 -translate-x-1/2 bg-amber-400 text-[#06101D] font-extrabold px-4 py-2 rounded-2xl shadow-2xl flex items-center gap-2 text-xs z-40 animate-bounce">
+            <span>{handRaiseNotice}</span>
+          </div>
+        )}
+
+        {/* Floating Live Reactions */}
+        <div className="absolute inset-0 pointer-events-none overflow-hidden z-30">
+          {reactions.map((r) => (
+            <span
+              key={r.id}
+              style={{ left: `${r.left}%` }}
+              className="absolute bottom-6 text-3xl animate-bounce drop-shadow-lg"
+            >
+              {r.emoji}
+            </span>
+          ))}
+        </div>
       </div>
 
       {/* 4. Floating Zoom Control Bar (Bottom) */}
@@ -703,10 +853,55 @@ export function ZoomLiveRoom({
             {isScreenSharing ? <MonitorOff className="w-4 h-4" /> : <Monitor className="w-4 h-4 text-[#41D8FF]" />}
             <span className="hidden md:inline">{isScreenSharing ? "Stop Sharing" : "Share Screen"}</span>
           </button>
+
+          {/* Hand Raise Button */}
+          <button
+            type="button"
+            onClick={toggleHandRaise}
+            className={`px-3.5 py-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-lg ${
+              isHandRaised
+                ? "bg-amber-400 text-[#06101D] font-extrabold shadow-amber-400/30 scale-105"
+                : "bg-[#081827] text-[#CBD5E1] border border-[#162942] hover:border-amber-400/50 hover:text-white"
+            }`}
+            title="Raise Hand to speak"
+          >
+            <span className="text-sm">✋</span>
+            <span className="hidden sm:inline">{isHandRaised ? "Hand Raised" : "Raise Hand"}</span>
+          </button>
+
+          {/* Live Reactions Bar */}
+          <div className="hidden sm:flex items-center gap-1 bg-[#081827] border border-[#162942] rounded-xl p-1">
+            {["👏", "🔥", "💡", "❤️", "🎉"].map((emoji) => (
+              <button
+                key={emoji}
+                type="button"
+                onClick={() => sendReaction(emoji)}
+                className="p-1 hover:scale-125 transition-transform text-sm cursor-pointer"
+                title={`Send ${emoji} reaction`}
+              >
+                {emoji}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Center: Interactive Class Tools */}
         <div className="flex items-center gap-2">
+          {/* Participants In Call Button */}
+          <button
+            type="button"
+            onClick={() => setIsParticipantsModalOpen(!isParticipantsModalOpen)}
+            className={`px-3 py-2 rounded-xl border text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer ${
+              isParticipantsModalOpen
+                ? "bg-[#397CFF] border-[#397CFF] text-white shadow-lg"
+                : "bg-[#081827] border-[#162942] text-[#CBD5E1] hover:text-white"
+            }`}
+            title="View All Participants In Call"
+          >
+            <Users className="w-4 h-4 text-[#41D8FF]" />
+            <span className="hidden sm:inline">Participants ({participants.length})</span>
+          </button>
+
           {onDownloadDataset && (
             <button
               type="button"
@@ -771,6 +966,56 @@ export function ZoomLiveRoom({
           )}
         </div>
       </div>
+
+      {/* 5. Live Participants Drawer */}
+      {isParticipantsModalOpen && (
+        <div className="p-4 bg-[#06101D] border-t border-[#162942] z-20">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Users className="w-4 h-4 text-[#41D8FF]" />
+              <span className="text-xs font-bold text-white">Connected Call Participants ({participants.length} Active)</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsParticipantsModalOpen(false)}
+              className="text-[#94A3B8] hover:text-white text-xs cursor-pointer font-bold"
+            >
+              ✕ Close
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5 max-h-48 overflow-y-auto">
+            {participants.map((p) => (
+              <div
+                key={p.id}
+                className="p-2.5 rounded-xl bg-[#081827] border border-[#162942] flex items-center justify-between gap-2 shadow-md"
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-[#397CFF] to-[#41D8FF] flex items-center justify-center text-white font-bold text-[10px] flex-shrink-0">
+                    {p.name.substring(0, 2).toUpperCase()}
+                  </div>
+                  <div className="min-w-0">
+                    <span className="font-bold text-xs text-white block truncate">{p.name} {p.isSelf ? "(You)" : ""}</span>
+                    <span className="text-[10px] text-[#64748B] block">{p.role}</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  {p.isHandRaised && (
+                    <span className="text-xs animate-bounce" title="Hand Raised">✋</span>
+                  )}
+                  <span className={`p-1 rounded ${p.isCameraOn ? "bg-emerald-500/20 text-emerald-300" : "bg-slate-800 text-slate-500"}`} title={p.isCameraOn ? "Camera Active" : "Camera Off"}>
+                    <VideoIcon className="w-3 h-3" />
+                  </span>
+                  <span className={`p-1 rounded ${p.isMicOn ? "bg-emerald-500/20 text-emerald-300 animate-pulse" : "bg-slate-800 text-slate-500"}`} title={p.isMicOn ? "Microphone Unmuted" : "Microphone Muted"}>
+                    <Mic className="w-3 h-3" />
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

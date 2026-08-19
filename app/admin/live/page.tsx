@@ -21,6 +21,17 @@ import {
   Clock,
   Eye,
   Film,
+  Mic,
+  MicOff,
+  VideoOff,
+  BellRing,
+  UserCheck,
+  UserX,
+  Volume2,
+  VolumeX,
+  Hand,
+  Search,
+  Filter,
 } from "lucide-react";
 import { Button } from "@/ui/Button";
 import { Input, Textarea } from "@/ui/Input";
@@ -50,6 +61,10 @@ export default function AdminLiveStudioPage() {
 
   // Instructor Chat Input
   const [chatInput, setChatInput] = useState("");
+
+  // Student Attendance Filter & Search
+  const [studentFilter, setStudentFilter] = useState<"ALL" | "ONLINE" | "ABSENT" | "HAND_RAISED">("ALL");
+  const [searchQuery, setSearchQuery] = useState("");
 
   const fetchLiveState = async () => {
     try {
@@ -95,6 +110,8 @@ export default function AdminLiveStudioPage() {
       setSuccessMsg(
         action === "END_AND_ARCHIVE"
           ? "🎉 Live stream ended and automatically published to Student Recorded Classes!"
+          : action === "PING_ABSENT"
+          ? "🔔 Urgent call reminder broadcasted to all absent students!"
           : "Classroom updated in real-time!"
       );
       setTimeout(() => setSuccessMsg(null), 3500);
@@ -167,6 +184,36 @@ export default function AdminLiveStudioPage() {
     handleAction("PIN_NOTICE", { notice: noticeText.trim() });
   };
 
+  // Student Attendance Filtering
+  const enrolledStudents: any[] = liveState?.enrolledStudents || [];
+  const participants: any[] = liveState?.participants || [];
+  const activeParticipantMap = new Map<string, any>(participants.map((p: any) => [p.id, p]));
+
+  const filteredStudents = enrolledStudents.filter((student: any) => {
+    const participant: any = activeParticipantMap.get(student.id);
+    const isOnline = !!participant;
+
+    if (studentFilter === "ONLINE" && !isOnline) return false;
+    if (studentFilter === "ABSENT" && isOnline) return false;
+    if (studentFilter === "HAND_RAISED" && (!participant || !participant.isHandRaised)) return false;
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      return (
+        student.name.toLowerCase().includes(q) ||
+        student.email.toLowerCase().includes(q) ||
+        student.cohort.toLowerCase().includes(q)
+      );
+    }
+    return true;
+  });
+
+  const onlineCount = participants.length;
+  const totalCount = enrolledStudents.length;
+  const absentCount = Math.max(0, totalCount - onlineCount);
+  const attendancePct = totalCount > 0 ? Math.round((onlineCount / totalCount) * 100) : 0;
+  const handsRaisedCount = participants.filter((p: any) => p && p.isHandRaised).length;
+
   return (
     <div className="space-y-6">
       {/* 1. Zoom WebRTC Live Room Viewport */}
@@ -175,7 +222,7 @@ export default function AdminLiveStudioPage() {
         streamTitle={streamTitle}
         instructorName={instructorName}
         instructorTitle="Lead Analytics Architect & Director"
-        viewersCount={liveState?.viewers || 74}
+        viewersCount={onlineCount}
         datasetName={datasetName}
         onDownloadDataset={() => alert("Downloading active exercise dataset: " + datasetName)}
         onOpenPoll={() => setIsPollModalOpen(true)}
@@ -188,8 +235,10 @@ export default function AdminLiveStudioPage() {
             <Film className="w-5 h-5" />
           </div>
           <div>
-            <h4 className="text-xs font-bold text-white">Automated Class Recording & Archiving</h4>
-            <p className="text-[11px] text-[#94A3B8]">When you finish the class, this stream is instantly added to the Recorded Masterclasses academy.</p>
+            <h4 className="text-xs font-bold text-white">Automated Class Recording & Live Telemetry</h4>
+            <p className="text-[11px] text-[#94A3B8]">
+              When you finish the class, this stream is instantly added to the Recorded Masterclasses catalog with live student attendance records.
+            </p>
           </div>
         </div>
 
@@ -232,7 +281,280 @@ export default function AdminLiveStudioPage() {
         </div>
       )}
 
-      {/* 2. Studio Configuration & Live Moderation Controls */}
+      {/* 2. Real-Time Student Call Attendance & Live Roster Section */}
+      <div className="p-6 rounded-3xl bg-[#081827] border border-[#162942] space-y-6 shadow-2xl">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#162942] pb-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <Users className="w-5 h-5 text-[#41D8FF]" />
+              <h3 className="text-base font-extrabold text-white">Live Student Call Attendance & Telemetry</h3>
+            </div>
+            <p className="text-xs text-[#94A3B8] mt-0.5">
+              Monitor connected students, track active video/audio feeds, and ping absent candidates in real-time.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => handleAction("PING_ABSENT")}
+            disabled={isUpdating}
+            className="px-4 py-2 rounded-xl bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20 text-amber-300 font-extrabold text-xs flex items-center gap-2 transition-all cursor-pointer"
+          >
+            <BellRing className="w-4 h-4 text-amber-400 animate-bounce" />
+            <span>Ping All Absent Students 🔔</span>
+          </button>
+        </div>
+
+        {/* Real-time KPI Stats Bar */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <div className="p-4 rounded-2xl bg-[#06101D] border border-[#162942] space-y-1">
+            <span className="text-[10px] text-[#64748B] font-bold uppercase tracking-wider">Total Enrolled Cohort</span>
+            <div className="flex items-baseline gap-2">
+              <span className="text-2xl font-black text-white font-mono">{totalCount}</span>
+              <span className="text-xs text-[#94A3B8]">Students</span>
+            </div>
+          </div>
+
+          <div className="p-4 rounded-2xl bg-[#06101D] border border-emerald-500/30 space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider">Joined In Call Now</span>
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+            </div>
+            <div className="flex items-baseline gap-2">
+              <span className="text-2xl font-black text-emerald-400 font-mono">{onlineCount}</span>
+              <span className="text-xs text-emerald-300 font-bold">({attendancePct}% Attendance)</span>
+            </div>
+          </div>
+
+          <div className="p-4 rounded-2xl bg-[#06101D] border border-rose-500/20 space-y-1">
+            <span className="text-[10px] text-rose-400 font-bold uppercase tracking-wider">Absent / Not Joined</span>
+            <div className="flex items-baseline gap-2">
+              <span className="text-2xl font-black text-rose-400 font-mono">{absentCount}</span>
+              <span className="text-xs text-rose-300">Pending</span>
+            </div>
+          </div>
+
+          <div className="p-4 rounded-2xl bg-[#06101D] border border-amber-500/30 space-y-1">
+            <span className="text-[10px] text-amber-400 font-bold uppercase tracking-wider">Live Hands Raised</span>
+            <div className="flex items-baseline gap-2">
+              <span className="text-2xl font-black text-amber-400 font-mono">{handsRaisedCount}</span>
+              <span className="text-xs text-amber-300 font-bold">Seeking to Speak</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Filter Tabs & Search Bar */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-1.5 bg-[#06101D] p-1 rounded-2xl border border-[#162942]">
+            <button
+              type="button"
+              onClick={() => setStudentFilter("ALL")}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                studentFilter === "ALL" ? "bg-[#397CFF] text-white" : "text-[#94A3B8] hover:text-white"
+              }`}
+            >
+              All Cohort ({totalCount})
+            </button>
+            <button
+              type="button"
+              onClick={() => setStudentFilter("ONLINE")}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                studentFilter === "ONLINE" ? "bg-emerald-600 text-white" : "text-[#94A3B8] hover:text-emerald-400"
+              }`}
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span>In Call Now ({onlineCount})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setStudentFilter("ABSENT")}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                studentFilter === "ABSENT" ? "bg-rose-600 text-white" : "text-[#94A3B8] hover:text-rose-400"
+              }`}
+            >
+              Absent ({absentCount})
+            </button>
+            <button
+              type="button"
+              onClick={() => setStudentFilter("HAND_RAISED")}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                studentFilter === "HAND_RAISED" ? "bg-amber-600 text-white" : "text-[#94A3B8] hover:text-amber-400"
+              }`}
+            >
+              ✋ Hand Raised ({handsRaisedCount})
+            </button>
+          </div>
+
+          <div className="relative w-full sm:w-64">
+            <Search className="w-4 h-4 text-[#64748B] absolute left-3 top-2.5" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search candidate name or email..."
+              className="w-full pl-9 pr-3 py-2 bg-[#06101D] border border-[#162942] rounded-xl text-xs text-white placeholder-[#64748B] focus:outline-none focus:border-[#41D8FF]"
+            />
+          </div>
+        </div>
+
+        {/* Student Attendance Table */}
+        <div className="overflow-x-auto rounded-2xl border border-[#162942]">
+          <table className="w-full text-left text-xs border-collapse">
+            <thead>
+              <tr className="bg-[#06101D] border-b border-[#162942] text-[#64748B] font-semibold">
+                <th className="p-3.5 pl-4">Candidate Profile</th>
+                <th className="p-3.5">Assigned Cohort</th>
+                <th className="p-3.5">Call Presence Status</th>
+                <th className="p-3.5">Media Telemetry</th>
+                <th className="p-3.5 pr-4 text-right">Instructor Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[#162942] bg-[#081827]">
+              {filteredStudents.length > 0 ? (
+                filteredStudents.map((student: any) => {
+                  const participant = activeParticipantMap.get(student.id);
+                  const isOnline = !!participant;
+
+                  return (
+                    <tr key={student.id} className="hover:bg-[#0c223a]/50 transition-colors">
+                      {/* Profile */}
+                      <td className="p-3.5 pl-4">
+                        <div className="flex items-center gap-3">
+                          <img
+                            src={student.avatar}
+                            alt={student.name}
+                            className="w-9 h-9 rounded-xl border border-[#162942] bg-[#06101D]"
+                          />
+                          <div>
+                            <span className="font-bold text-white block">{student.name}</span>
+                            <span className="text-[10px] text-[#64748B] font-mono">{student.email}</span>
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Cohort */}
+                      <td className="p-3.5 text-[#CBD5E1] font-medium">
+                        {student.cohort}
+                      </td>
+
+                      {/* Presence Status */}
+                      <td className="p-3.5">
+                        {isOnline ? (
+                          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-bold text-[11px]">
+                            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                            <span>IN CALL ({participant.joinedAt})</span>
+                          </div>
+                        ) : (
+                          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400 font-semibold text-[11px]">
+                            <UserX className="w-3.5 h-3.5" />
+                            <span>NOT JOINED</span>
+                          </div>
+                        )}
+                      </td>
+
+                      {/* Media Feeds */}
+                      <td className="p-3.5">
+                        {isOnline ? (
+                          <div className="flex items-center gap-2">
+                            {/* Camera Status */}
+                            <span
+                              className={`p-1.5 rounded-lg text-[10px] font-bold flex items-center gap-1 ${
+                                participant.isCameraOn
+                                  ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                                  : "bg-[#06101D] text-[#64748B] border border-[#162942]"
+                              }`}
+                              title={participant.isCameraOn ? "Webcam Video is Active" : "Webcam Video is Off"}
+                            >
+                              <Video className="w-3 h-3" />
+                              <span className="hidden sm:inline">{participant.isCameraOn ? "Cam ON" : "Off"}</span>
+                            </span>
+
+                            {/* Mic Status */}
+                            <span
+                              className={`p-1.5 rounded-lg text-[10px] font-bold flex items-center gap-1 ${
+                                participant.isMicOn
+                                  ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 animate-pulse"
+                                  : "bg-[#06101D] text-[#64748B] border border-[#162942]"
+                              }`}
+                              title={participant.isMicOn ? "Microphone is Unmuted (Speaking)" : "Microphone is Muted"}
+                            >
+                              <Mic className="w-3 h-3" />
+                              <span className="hidden sm:inline">{participant.isMicOn ? "Mic ON" : "Muted"}</span>
+                            </span>
+
+                            {/* Hand Raised */}
+                            {participant.isHandRaised && (
+                              <span className="p-1.5 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[10px] font-extrabold flex items-center gap-1 animate-bounce">
+                                <span>✋ Hand Up</span>
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-[11px] text-[#64748B] font-mono">—</span>
+                        )}
+                      </td>
+
+                      {/* Actions */}
+                      <td className="p-3.5 pr-4 text-right">
+                        {isOnline ? (
+                          <div className="flex items-center justify-end gap-1.5">
+                            {participant.isMicOn && (
+                              <button
+                                type="button"
+                                onClick={() => handleAction("MUTE_STUDENT", { studentId: student.id })}
+                                className="px-2.5 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-300 text-[11px] font-bold transition-colors cursor-pointer"
+                                title="Mute Student Microphone"
+                              >
+                                Mute Mic 🔇
+                              </button>
+                            )}
+
+                            {participant.isHandRaised && (
+                              <button
+                                type="button"
+                                onClick={() => handleAction("LOWER_HAND", { studentId: student.id })}
+                                className="px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 text-[11px] font-bold transition-colors cursor-pointer"
+                                title="Lower Hand"
+                              >
+                                Lower Hand ✋
+                              </button>
+                            )}
+
+                            <button
+                              type="button"
+                              onClick={() => handleAction("DISMISS_STUDENT", { studentId: student.id })}
+                              className="px-2.5 py-1 rounded-lg bg-[#06101D] hover:bg-rose-950/40 border border-[#162942] hover:border-rose-500/30 text-[#94A3B8] hover:text-rose-300 text-[11px] transition-colors cursor-pointer"
+                              title="Disconnect Student"
+                            >
+                              Dismiss
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleAction("PING_ABSENT")}
+                            className="px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 text-[11px] font-bold transition-colors cursor-pointer"
+                          >
+                            Send Call Ping 🔔
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
+              ) : (
+                <tr>
+                  <td colSpan={5} className="p-8 text-center text-[#64748B] text-xs">
+                    No candidates match the selected filter or search query.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* 3. Studio Configuration & Live Moderation Controls */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Left Column: Stream Settings & Poll Creator (7 cols) */}
         <div className="lg:col-span-7 space-y-6">
