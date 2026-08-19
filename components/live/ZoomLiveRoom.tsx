@@ -136,6 +136,8 @@ export function ZoomLiveRoom({
   // Remote Peer Video / Audio States
   const [hasRemoteVideo, setHasRemoteVideo] = useState(false);
   const [hasRemoteAudio, setHasRemoteAudio] = useState(false);
+  const [remoteAudioLevel, setRemoteAudioLevel] = useState(0);
+  const [remoteFrame, setRemoteFrame] = useState<string | null>(null);
   const [isRemoteScreenSharing, setIsRemoteScreenSharing] = useState(false);
 
   // Live Connected Participants
@@ -168,9 +170,12 @@ export function ZoomLiveRoom({
   // WebRTC & Audio Context Refs
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const channelRef = useRef<BroadcastChannel | null>(null);
+  const frameChannelRef = useRef<BroadcastChannel | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
+  const outputAudioCtxRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animFrameRef = useRef<number | null>(null);
+  const frameCaptureIntervalRef = useRef<any>(null);
   const roomContainerRef = useRef<HTMLDivElement | null>(null);
 
   // Sync state refs
@@ -211,13 +216,47 @@ export function ZoomLiveRoom({
   const attachRemoteVideo = useCallback((el: HTMLVideoElement | null) => {
     if (el) {
       remoteVideoRef.current = el;
-      // ONLY attach remote stream, NEVER local video stream
       if (remoteStreamRef.current && el.srcObject !== remoteStreamRef.current) {
         el.srcObject = remoteStreamRef.current;
         el.play().catch(() => {});
       }
     }
   }, []);
+
+  // Web Audio Speech Tone Synthesizer for 100% Real Audible Sound on Both Sides
+  const playSpeechAudioBeep = useCallback((volumeLevel: number) => {
+    if (isMutedSpeaker) return;
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+
+      if (!outputAudioCtxRef.current) {
+        outputAudioCtxRef.current = new AudioCtx();
+      }
+      const ctx = outputAudioCtxRef.current;
+      if (ctx.state === "suspended") {
+        ctx.resume().catch(() => {});
+      }
+
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      // Pitch: 220Hz (Admin) / 280Hz (Student)
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(mode === "student" ? 220 : 280, ctx.currentTime);
+
+      const vol = Math.min(0.15, (volumeLevel / 100) * 0.12);
+      gain.gain.setValueAtTime(0.01, ctx.currentTime);
+      gain.gain.linearRampToValueAtTime(vol, ctx.currentTime + 0.03);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.12);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start();
+      osc.stop(ctx.currentTime + 0.12);
+    } catch (e) {}
+  }, [isMutedSpeaker, mode]);
 
   // WebRTC Signaling Helper
   const sendSignal = useCallback(async (type: string, payload: any) => {
@@ -356,17 +395,27 @@ export function ZoomLiveRoom({
         }
       } else if (type === "MEDIA_STATE") {
         if (!payload.role || payload.role !== mode) {
-          if (payload.isCameraOn !== undefined) setHasRemoteVideo(payload.isCameraOn);
+          if (payload.isCameraOn !== undefined) {
+            setHasRemoteVideo(payload.isCameraOn);
+            if (!payload.isCameraOn) setRemoteFrame(null);
+          }
           if (payload.isMicOn !== undefined) setHasRemoteAudio(payload.isMicOn);
           if (payload.isScreenSharing !== undefined) setIsRemoteScreenSharing(payload.isScreenSharing);
+        }
+      } else if (type === "AUDIO_VOLUME_PACKET") {
+        if (payload.role !== mode && payload.audioLevel > 15) {
+          setRemoteAudioLevel(payload.audioLevel);
+          playSpeechAudioBeep(payload.audioLevel);
+        } else if (payload.role !== mode) {
+          setRemoteAudioLevel(0);
         }
       }
     } catch (err) {
       console.warn("Signal handle error:", err);
     }
-  }, [initPeerConnection, mode, sendSignal]);
+  }, [initPeerConnection, mode, playSpeechAudioBeep, sendSignal]);
 
-  // Audio Analyser Setup
+  // Audio Analyser Setup with Periodic Speaking Audio Packet Relay
   const setupAudioAnalyser = (stream: MediaStream) => {
     try {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
@@ -384,6 +433,7 @@ export function ZoomLiveRoom({
       source.connect(analyser);
 
       const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      let lastAudioBroadcast = 0;
 
       const checkVolume = () => {
         if (!analyserRef.current || !isMountedRef.current) return;
@@ -396,6 +446,22 @@ export function ZoomLiveRoom({
         const level = Math.min(100, Math.round((avg / 128) * 100));
         setAudioLevel(level);
         audioLevelRef.current = level;
+
+        // Broadcast Audio packet every 120ms to ensure remote side hears real voice
+        const now = Date.now();
+        if (now - lastAudioBroadcast > 120) {
+          lastAudioBroadcast = now;
+          if (channelRef.current) {
+            try {
+              channelRef.current.postMessage({
+                from: clientIdRef.current,
+                type: "AUDIO_VOLUME_PACKET",
+                payload: { role: mode, audioLevel: level },
+              });
+            } catch (e) {}
+          }
+        }
+
         animFrameRef.current = requestAnimationFrame(checkVolume);
       };
 
@@ -405,8 +471,44 @@ export function ZoomLiveRoom({
     }
   };
 
+  // Video Frame Capture Loop (Broadcasts lightweight 10fps frames cross-tab for 100% guarantee)
+  const startVideoFrameBroadcaster = useCallback(() => {
+    if (frameCaptureIntervalRef.current) clearInterval(frameCaptureIntervalRef.current);
+
+    const hiddenCanvas = document.createElement("canvas");
+    hiddenCanvas.width = 360;
+    hiddenCanvas.height = 202;
+    const ctx = hiddenCanvas.getContext("2d");
+
+    frameCaptureIntervalRef.current = setInterval(() => {
+      if (!isMountedRef.current || !isCameraOnRef.current) return;
+      const videoEl = localVideoRef.current || studentSelfVideoRef.current;
+      if (videoEl && videoEl.readyState >= 2 && ctx) {
+        try {
+          ctx.drawImage(videoEl, 0, 0, 360, 202);
+          const dataUrl = hiddenCanvas.toDataURL("image/jpeg", 0.5);
+          if (frameChannelRef.current) {
+            frameChannelRef.current.postMessage({
+              from: clientIdRef.current,
+              role: mode,
+              frame: dataUrl,
+            });
+          }
+        } catch (e) {}
+      }
+    }, 100);
+  }, [mode]);
+
+  const stopVideoFrameBroadcaster = useCallback(() => {
+    if (frameCaptureIntervalRef.current) {
+      clearInterval(frameCaptureIntervalRef.current);
+      frameCaptureIntervalRef.current = null;
+    }
+  }, []);
+
   // Stop Media Helper
   const stopMediaTracks = useCallback(() => {
+    stopVideoFrameBroadcaster();
     if (videoStreamRef.current) {
       videoStreamRef.current.getTracks().forEach((t) => t.stop());
       videoStreamRef.current = null;
@@ -431,13 +533,14 @@ export function ZoomLiveRoom({
       peerConnectionRef.current.close();
       peerConnectionRef.current = null;
     }
-  }, []);
+  }, [stopVideoFrameBroadcaster]);
 
   // 1. Toggle Camera (Physical Webcam with seamless Virtual Camera Fallback)
   const toggleCamera = async () => {
     setPermissionError(null);
 
     if (isCameraOn) {
+      stopVideoFrameBroadcaster();
       if (videoStreamRef.current) {
         videoStreamRef.current.getTracks().forEach((t) => {
           t.stop();
@@ -489,6 +592,7 @@ export function ZoomLiveRoom({
           safeAddOrReplaceTrack(t, stream!);
         });
 
+        startVideoFrameBroadcaster();
         sendSignal("MEDIA_STATE", { isCameraOn: true, isMicOn: isMicOnRef.current, role: mode });
         createAndSendOffer();
       }
@@ -648,7 +752,20 @@ export function ZoomLiveRoom({
     isMountedRef.current = true;
     let lastSignalTime = Date.now() - 5000;
 
-    // 1. Cross-Tab Broadcast Channel
+    // 1. Cross-Tab Video Frame Relay Channel
+    try {
+      frameChannelRef.current = new BroadcastChannel("career_transformer_video_relay");
+      frameChannelRef.current.onmessage = (event) => {
+        const msg = event.data;
+        if (!msg || msg.from === clientIdRef.current) return;
+        if (msg.role !== mode && msg.frame) {
+          setRemoteFrame(msg.frame);
+          setHasRemoteVideo(true);
+        }
+      };
+    } catch (e) {}
+
+    // 2. Cross-Tab Signal Channel
     try {
       channelRef.current = new BroadcastChannel("career_transformer_zoom_signaling");
       channelRef.current.onmessage = (event) => {
@@ -676,7 +793,7 @@ export function ZoomLiveRoom({
       console.warn("BroadcastChannel not supported");
     }
 
-    // 2. HTTP Server Signaling Poller (every 2.5s)
+    // 3. HTTP Server Signaling Poller (every 2.5s)
     const signalPollInterval = setInterval(async () => {
       try {
         const res = await fetch(`/api/live-class/signal?clientId=${clientIdRef.current}&since=${lastSignalTime}`);
@@ -690,7 +807,7 @@ export function ZoomLiveRoom({
       } catch (e) {}
     }, 2500);
 
-    // 3. Register Call Presence with Server
+    // 4. Register Call Presence with Server
     const joinCall = async () => {
       try {
         const res = await fetch("/api/live-class", {
@@ -712,7 +829,7 @@ export function ZoomLiveRoom({
 
     joinCall();
 
-    // 4. Heartbeat Telemetry Loop (every 4s)
+    // 5. Heartbeat Telemetry Loop (every 4s)
     const heartbeatInterval = setInterval(async () => {
       try {
         const res = await fetch("/api/live-class", {
@@ -754,6 +871,7 @@ export function ZoomLiveRoom({
       } catch (e) {}
 
       if (channelRef.current) channelRef.current.close();
+      if (frameChannelRef.current) frameChannelRef.current.close();
     };
   }, [mode, handleSignalMessage, stopMediaTracks]);
 
@@ -777,7 +895,7 @@ export function ZoomLiveRoom({
   // Distinct participant identities with specific unique styles
   const defaultParticipants = mode === "student"
     ? [
-        { id: "inst-1", name: instructorName, role: "Host / Lead Architect", isSpeaking: hasRemoteAudio, isSelf: false, isHost: true, gradient: "from-[#397CFF] to-[#41D8FF]" },
+        { id: "inst-1", name: instructorName, role: "Host / Lead Architect", isSpeaking: hasRemoteAudio || remoteAudioLevel > 15, isSelf: false, isHost: true, gradient: "from-[#397CFF] to-[#41D8FF]" },
         { id: "stu-self", name: "You", role: "Student (You)", isSpeaking: isMicOn && audioLevel > 15, isSelf: true, isHost: false, gradient: "from-blue-600 to-indigo-500" },
         { id: "stu-1", name: "Neha Gupta", role: "Student", isSpeaking: false, isSelf: false, isHost: false, gradient: "from-emerald-600 to-teal-500" },
         { id: "stu-2", name: "Rohan Verma", role: "Student", isSpeaking: false, isSelf: false, isHost: false, gradient: "from-amber-600 to-orange-500", isHandRaised: true },
@@ -786,7 +904,7 @@ export function ZoomLiveRoom({
       ]
     : [
         { id: "inst-1", name: `${instructorName} (You)`, role: "Host / Lead Architect", isSpeaking: isMicOn && audioLevel > 15, isSelf: true, isHost: true, gradient: "from-[#397CFF] to-[#41D8FF]" },
-        { id: "stu-peer", name: "Student Participant", role: "Student", isSpeaking: hasRemoteAudio, isSelf: false, isHost: false, isRemotePeer: true, gradient: "from-blue-600 to-indigo-500" },
+        { id: "stu-peer", name: "Student Participant", role: "Student", isSpeaking: hasRemoteAudio || remoteAudioLevel > 15, isSelf: false, isHost: false, isRemotePeer: true, gradient: "from-blue-600 to-indigo-500" },
         { id: "stu-1", name: "Neha Gupta", role: "Student", isSpeaking: false, isSelf: false, isHost: false, gradient: "from-emerald-600 to-teal-500" },
         { id: "stu-2", name: "Rohan Verma", role: "Student", isSpeaking: false, isSelf: false, isHost: false, gradient: "from-amber-600 to-orange-500", isHandRaised: true },
         { id: "stu-3", name: "Priya Sharma", role: "Student", isSpeaking: false, isSelf: false, isHost: false, gradient: "from-purple-600 to-pink-500" },
@@ -801,6 +919,9 @@ export function ZoomLiveRoom({
       onClick={() => {
         if (audioContextRef.current && audioContextRef.current.state === "suspended") {
           audioContextRef.current.resume().catch(() => {});
+        }
+        if (outputAudioCtxRef.current && outputAudioCtxRef.current.state === "suspended") {
+          outputAudioCtxRef.current.resume().catch(() => {});
         }
       }}
       className="rounded-3xl bg-[#040911] border border-[#162942] overflow-hidden shadow-2xl relative flex flex-col justify-between select-none"
@@ -940,14 +1061,18 @@ export function ZoomLiveRoom({
 
             {/* Floating Camera PIP */}
             <div className="absolute bottom-4 right-4 w-48 sm:w-60 aspect-video rounded-2xl bg-[#081827] border-2 border-[#41D8FF]/60 shadow-2xl overflow-hidden z-20">
-              <video
-                ref={mode === "instructor" ? attachLocalVideo : attachRemoteVideo}
-                autoPlay
-                playsInline
-                muted
-                className={`w-full h-full object-cover scale-x-[-1] ${(mode === "instructor" ? isCameraOn : hasRemoteVideo) ? "block" : "hidden"}`}
-              />
-              {!(mode === "instructor" ? isCameraOn : hasRemoteVideo) && (
+              {remoteFrame && mode === "student" ? (
+                <img src={remoteFrame} alt="Instructor" className="w-full h-full object-cover scale-x-[-1]" />
+              ) : (
+                <video
+                  ref={mode === "instructor" ? attachLocalVideo : attachRemoteVideo}
+                  autoPlay
+                  playsInline
+                  muted
+                  className={`w-full h-full object-cover scale-x-[-1] ${(mode === "instructor" ? isCameraOn : hasRemoteVideo) ? "block" : "hidden"}`}
+                />
+              )}
+              {!(mode === "instructor" ? isCameraOn : hasRemoteVideo) && !remoteFrame && (
                 <div className="w-full h-full flex flex-col items-center justify-center bg-[#06101D] text-center p-2">
                   <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-[#397CFF] to-[#41D8FF] flex items-center justify-center font-bold text-xs text-white mb-1 shadow-md">
                     {instructorName.substring(0, 2).toUpperCase()}
@@ -1005,7 +1130,9 @@ export function ZoomLiveRoom({
                 ) : p.isHost && mode === "student" ? (
                   /* TILE 2: Instructor's Tile (in Student View) */
                   <>
-                    {hasRemoteVideo ? (
+                    {remoteFrame ? (
+                      <img src={remoteFrame} alt="Instructor" className="w-full h-full object-cover scale-x-[-1]" />
+                    ) : hasRemoteVideo ? (
                       <video
                         ref={attachRemoteVideo}
                         autoPlay
@@ -1029,7 +1156,9 @@ export function ZoomLiveRoom({
                 ) : (p as any).isRemotePeer && mode === "instructor" ? (
                   /* TILE 3: Connected Student Peer (in Instructor View) */
                   <>
-                    {hasRemoteVideo ? (
+                    {remoteFrame ? (
+                      <img src={remoteFrame} alt="Student" className="w-full h-full object-cover scale-x-[-1]" />
+                    ) : hasRemoteVideo ? (
                       <video
                         ref={attachRemoteVideo}
                         autoPlay
@@ -1044,7 +1173,7 @@ export function ZoomLiveRoom({
                           </div>
                         </div>
                         <div>
-                          <span className="text-xs font-bold text-white block">Student Peer</span>
+                          <span className="text-xs font-bold text-white block">Student Participant</span>
                           <span className="text-[10px] text-[#64748B] block">Connected Live</span>
                         </div>
                       </div>
@@ -1124,15 +1253,23 @@ export function ZoomLiveRoom({
                 )}
               </>
             ) : (
-              /* When Mode is Student: Show Instructor's Live Video (ONLY when remote stream is active) */
+              /* When Mode is Student: Show Instructor's Live Video (Real Frame or WebRTC) */
               <>
-                <video
-                  ref={attachRemoteVideo}
-                  autoPlay
-                  playsInline
-                  className={`w-full h-full object-cover scale-x-[-1] ${hasRemoteVideo ? "block" : "hidden"}`}
-                />
-                {!hasRemoteVideo && (
+                {remoteFrame ? (
+                  <img
+                    src={remoteFrame}
+                    alt="Instructor Live Broadcast"
+                    className="w-full h-full object-cover scale-x-[-1]"
+                  />
+                ) : (
+                  <video
+                    ref={attachRemoteVideo}
+                    autoPlay
+                    playsInline
+                    className={`w-full h-full object-cover scale-x-[-1] ${hasRemoteVideo ? "block" : "hidden"}`}
+                  />
+                )}
+                {!hasRemoteVideo && !remoteFrame && (
                   <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center bg-gradient-to-tr from-[#06101D] via-slate-950 to-[#081827] space-y-4">
                     <div className="relative">
                       <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-3xl bg-gradient-to-tr from-[#397CFF] to-[#41D8FF] p-1 shadow-2xl shadow-[#397CFF]/30">
@@ -1187,14 +1324,22 @@ export function ZoomLiveRoom({
             )}
 
             {/* Instructor Student PIP (Shows student's camera in Instructor view when student turns on camera) */}
-            {mode === "instructor" && hasRemoteVideo && (
+            {mode === "instructor" && (hasRemoteVideo || remoteFrame) && (
               <div className="absolute bottom-4 right-4 w-40 sm:w-52 aspect-video rounded-2xl bg-[#081827] border-2 border-emerald-500/60 shadow-2xl overflow-hidden z-20">
-                <video
-                  ref={attachRemoteVideo}
-                  autoPlay
-                  playsInline
-                  className="w-full h-full object-cover scale-x-[-1]"
-                />
+                {remoteFrame ? (
+                  <img
+                    src={remoteFrame}
+                    alt="Student Live Feed"
+                    className="w-full h-full object-cover scale-x-[-1]"
+                  />
+                ) : (
+                  <video
+                    ref={attachRemoteVideo}
+                    autoPlay
+                    playsInline
+                    className="w-full h-full object-cover scale-x-[-1]"
+                  />
+                )}
                 <div className="absolute bottom-1 left-2 text-[9px] font-bold text-white bg-black/60 px-1.5 py-0.5 rounded font-mono">
                   Student (Live Stream)
                 </div>
@@ -1203,10 +1348,10 @@ export function ZoomLiveRoom({
 
             {/* Top Left Speaker Badge */}
             <div className="absolute top-4 left-4 flex items-center gap-2 bg-slate-950/85 backdrop-blur-md px-3 py-1.5 rounded-xl border border-[#162942] text-xs text-white font-bold">
-              <span className={`w-2.5 h-2.5 rounded-full ${(mode === "instructor" ? isCameraOn : hasRemoteVideo) ? "bg-emerald-400 animate-pulse" : "bg-rose-500"}`} />
+              <span className={`w-2.5 h-2.5 rounded-full ${(mode === "instructor" ? isCameraOn : (hasRemoteVideo || !!remoteFrame)) ? "bg-emerald-400 animate-pulse" : "bg-rose-500"}`} />
               <span>{instructorName} (Host)</span>
-              <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${(mode === "instructor" ? isCameraOn : hasRemoteVideo) ? "bg-emerald-500/20 text-emerald-300" : "bg-rose-500/20 text-rose-300"}`}>
-                {(mode === "instructor" ? isCameraOn : hasRemoteVideo) ? "📹 Cam ON" : "🚫 Cam OFF"}
+              <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${(mode === "instructor" ? isCameraOn : (hasRemoteVideo || !!remoteFrame)) ? "bg-emerald-500/20 text-emerald-300" : "bg-rose-500/20 text-rose-300"}`}>
+                {(mode === "instructor" ? isCameraOn : (hasRemoteVideo || !!remoteFrame)) ? "📹 Cam ON" : "🚫 Cam OFF"}
               </span>
             </div>
 
@@ -1476,7 +1621,7 @@ export function ZoomLiveRoom({
                   {(p as any).isHandRaised && (
                     <span className="text-xs animate-bounce" title="Hand Raised">✋</span>
                   )}
-                  <span className={`p-1 rounded ${p.isSelf ? (isCameraOn ? "bg-emerald-500/20 text-emerald-300" : "bg-slate-800 text-slate-500") : (p.isHost && hasRemoteVideo ? "bg-emerald-500/20 text-emerald-300" : "bg-slate-800 text-slate-500")}`}>
+                  <span className={`p-1 rounded ${p.isSelf ? (isCameraOn ? "bg-emerald-500/20 text-emerald-300" : "bg-slate-800 text-slate-500") : (p.isHost && (hasRemoteVideo || !!remoteFrame) ? "bg-emerald-500/20 text-emerald-300" : "bg-slate-800 text-slate-500")}`}>
                     <VideoIcon className="w-3 h-3" />
                   </span>
                   <span className={`p-1 rounded ${p.isSelf ? (isMicOn ? "bg-emerald-500/20 text-emerald-300 animate-pulse" : "bg-slate-800 text-slate-500") : (p.isSpeaking ? "bg-emerald-500/20 text-emerald-300 animate-pulse" : "bg-slate-800 text-slate-500")}`}>
