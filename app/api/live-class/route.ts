@@ -175,8 +175,8 @@ function getSafeLiveClassState(): LiveClassState {
 
   for (const p of global.__liveClassState.participants) {
     if (!p || !p.id) continue;
-    // Active ONLY if pinged within last 20 seconds
-    if (now - p.lastPing > 20000) continue;
+    // Active ONLY if pinged within last 45 seconds
+    if (now - p.lastPing > 45000) continue;
     if (seenIds.has(p.id)) continue;
     if (p.email && seenEmails.has(p.email)) continue;
 
@@ -469,14 +469,41 @@ export async function POST(req: NextRequest) {
 
     if (action === "HEARTBEAT") {
       const userId = session?.id || body.userId;
-      const p = state.participants.find((x) => x.id === userId);
+      const fullName = session?.fullName || body.name;
+      const role = (session?.role as any) || "STUDENT";
+      let p = state.participants.find((x) => x.id === userId);
       if (p) {
         p.lastPing = Date.now();
         if (body.isCameraOn !== undefined) p.isCameraOn = body.isCameraOn;
         if (body.isMicOn !== undefined) p.isMicOn = body.isMicOn;
         if (body.isHandRaised !== undefined) p.isHandRaised = body.isHandRaised;
         if (body.isSpeaking !== undefined) p.isSpeaking = body.isSpeaking;
+      } else if (userId) {
+        state.participants.push({
+          id: userId,
+          name: fullName || "Student",
+          email: session?.email,
+          role,
+          avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(fullName || "Student")}`,
+          joinedAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          lastPing: Date.now(),
+          isCameraOn: !!body.isCameraOn,
+          isMicOn: !!body.isMicOn,
+          isHandRaised: !!body.isHandRaised,
+        });
       }
+
+      // Update enrolled student status to ONLINE_IN_CALL
+      if (role === "STUDENT" && userId) {
+        const studentEmail = session?.email || body.email;
+        const enrolled = state.enrolledStudents.find(
+          (s) => s.id === userId || (studentEmail && s.email.toLowerCase() === studentEmail.toLowerCase()) || (fullName && s.name.toLowerCase() === fullName.toLowerCase())
+        );
+        if (enrolled) {
+          enrolled.status = "ONLINE_IN_CALL";
+        }
+      }
+
       return NextResponse.json({ success: true, state });
     }
 

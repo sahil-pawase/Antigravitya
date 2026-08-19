@@ -762,6 +762,18 @@ export function ZoomLiveRoom({
     }
   };
 
+  const handleSignalMessageRef = useRef(handleSignalMessage);
+  handleSignalMessageRef.current = handleSignalMessage;
+
+  const stopMediaTracksRef = useRef(stopMediaTracks);
+  stopMediaTracksRef.current = stopMediaTracks;
+
+  const sendSignalRef = useRef(sendSignal);
+  sendSignalRef.current = sendSignal;
+
+  const createAndSendOfferRef = useRef(createAndSendOffer);
+  createAndSendOfferRef.current = createAndSendOffer;
+
   // Mount/Unmount Lifecycle & Signaling
   useEffect(() => {
     isMountedRef.current = true;
@@ -799,16 +811,16 @@ export function ZoomLiveRoom({
           }, 2500);
         } else if (msg.type === "PEER_PRESENCE" && msg.role !== mode) {
           // Immediately respond with our current media state and exchange offer
-          sendSignal("MEDIA_STATE", {
+          sendSignalRef.current("MEDIA_STATE", {
             role: mode,
             isCameraOn: isCameraOnRef.current,
             isMicOn: isMicOnRef.current,
           });
           if (mode === "instructor") {
-            createAndSendOffer();
+            createAndSendOfferRef.current();
           }
         } else {
-          handleSignalMessage(msg);
+          handleSignalMessageRef.current(msg);
         }
       };
     } catch (e) {
@@ -822,7 +834,7 @@ export function ZoomLiveRoom({
         const data = await res.json();
         if (data.success && Array.isArray(data.signals)) {
           for (const sig of data.signals) {
-            handleSignalMessage(sig);
+            handleSignalMessageRef.current(sig);
           }
           if (data.serverTime) lastSignalTime = data.serverTime;
         }
@@ -891,7 +903,7 @@ export function ZoomLiveRoom({
       clearInterval(timer);
       clearInterval(heartbeatInterval);
       clearInterval(signalPollInterval);
-      stopMediaTracks();
+      stopMediaTracksRef.current();
 
       try {
         fetch("/api/live-class", {
@@ -905,7 +917,7 @@ export function ZoomLiveRoom({
       if (channelRef.current) channelRef.current.close();
       if (frameChannelRef.current) frameChannelRef.current.close();
     };
-  }, [mode, handleSignalMessage, stopMediaTracks]);
+  }, [mode]);
 
   const toggleFullscreen = () => {
     if (!roomContainerRef.current) return;
