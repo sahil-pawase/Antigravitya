@@ -1,43 +1,39 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Button } from "@/ui/Button";
 import {
-  GraduationCap,
+  Lock,
+  Mail,
+  ArrowRight,
   ShieldCheck,
   Sparkles,
   AlertCircle,
   Eye,
   EyeOff,
-  Lock,
-  Mail,
-  ArrowRight,
-  CheckCircle2,
-  Code2,
-  Database,
-  LineChart,
-  UserCheck,
+  GraduationCap,
+  Layers,
+  Video,
+  FileCode2,
+  Award,
 } from "lucide-react";
+import { Button } from "@/components/ui/Button";
 import { TiltCard3D } from "@/components/3d/TiltCard3D";
-import { Login3DScene } from "@/components/3d/Login3DScene";
 import { FadeIn } from "@/components/motion/MotionWrapper";
-import { motion, AnimatePresence } from "framer-motion";
+import { DataMesh3DCanvas } from "@/components/3d/DataMesh3DCanvas";
 
-export default function LoginPage() {
+function LoginFormContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const redirectUrl = searchParams.get("redirect") || "";
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeRole, setActiveRole] = useState<"student" | "alumni" | "admin">("student");
-
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const redirectUrl = searchParams.get("redirect") || "/dashboard";
-  const isLoggedOut = searchParams.get("logout") === "success";
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -45,316 +41,233 @@ export default function LoginPage() {
     setError(null);
 
     try {
-      const res = await fetch("/api/auth/login", {
+      const response = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({
+          email: email.trim(),
+          password,
+        }),
       });
 
-      const data = await res.json();
+      const data = await response.json();
 
-      if (!res.ok) {
-        throw new Error(data.error || "Invalid email or password");
+      if (!response.ok) {
+        throw new Error(data.error || "Authentication failed. Please check your credentials.");
       }
 
-      // Successful login
-      router.push(data.redirectTo || redirectUrl);
+      const destination = redirectUrl || data.redirectTo || "/dashboard";
+      router.push(destination);
       router.refresh();
-    } catch (err: unknown) {
-      if (err instanceof Error) {
-        setError(err.message);
-      } else {
-        setError("Failed to sign in. Please check your credentials and try again.");
-      }
+    } catch (err: any) {
+      setError(err.message || "Invalid email or password. Please try again.");
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleDemoFill = (role: "student" | "alumni" | "admin") => {
-    setActiveRole(role);
-    if (role === "student") {
-      setEmail("student@careertransformer.in");
-      setPassword("StudentPassword123!");
-    } else if (role === "alumni") {
-      setEmail("alumni@careertransformer.in");
-      setPassword("StudentPassword123!");
-    } else if (role === "admin") {
-      setEmail("pawasesahil2004@gmail.com");
-      setPassword("Ram@123");
-    }
-  };
-
   return (
-    <div className="min-h-screen bg-[#040B14] text-[#F5F8FC] flex flex-col justify-center py-8 lg:py-16 px-4 sm:px-6 lg:px-8 relative overflow-hidden selection:bg-[#397CFF]/30">
-      {/* 3D WebGL Three.js Particle & Cyber Orbit Background */}
-      <Login3DScene />
+    <div className="min-h-screen bg-[#040B14] text-[#F5F8FC] flex flex-col justify-center py-12 sm:px-6 lg:px-8 relative overflow-hidden selection:bg-[#397CFF]/30">
+      <DataMesh3DCanvas />
 
-      {/* Cyber Grid & Ambient Radial Lighting */}
-      <div className="absolute inset-0 bg-cyber-grid bg-[size:40px_40px] opacity-15 pointer-events-none" />
-      <div className="absolute top-1/3 left-1/4 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-[#397CFF]/15 rounded-full blur-[160px] pointer-events-none" />
-      <div className="absolute bottom-1/4 right-1/4 w-[500px] h-[500px] bg-[#41D8FF]/10 rounded-full blur-[140px] pointer-events-none" />
+      <div className="absolute inset-0 bg-cyber-grid bg-[size:35px_35px] opacity-10 pointer-events-none" />
+      <div className="absolute top-1/4 left-1/4 w-[600px] h-[300px] bg-[#397CFF]/15 rounded-full blur-[140px] pointer-events-none" />
+      <div className="absolute bottom-1/4 right-1/4 w-[500px] h-[250px] bg-[#41D8FF]/10 rounded-full blur-[120px] pointer-events-none" />
 
-      <div className="max-w-7xl mx-auto w-full relative z-10">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center">
-          {/* Left Column: 3D Feature Showcase & Brand Elevation */}
-          <div className="lg:col-span-6 space-y-8 text-center lg:text-left">
+      <div className="sm:mx-auto sm:w-full sm:max-w-md relative z-10 text-center mb-8">
+        <Link href="/" className="inline-flex items-center gap-3 group">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-[#397CFF] to-[#41D8FF] p-0.5 shadow-lg shadow-[#397CFF]/20 group-hover:scale-105 transition-transform">
+            <div className="w-full h-full bg-[#06101D] rounded-[10px] flex items-center justify-center">
+              <GraduationCap className="w-6 h-6 text-[#41D8FF]" />
+            </div>
+          </div>
+          <span className="font-extrabold text-xl tracking-tight text-white group-hover:text-[#41D8FF] transition-colors">
+            CAREER TRANSFORMER
+          </span>
+        </Link>
+      </div>
+
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10 w-full">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-center">
+          {/* Left Column: Enterprise Value Proposition (No credentials shown) */}
+          <div className="lg:col-span-6 space-y-6 hidden lg:block">
             <FadeIn>
-              <Link href="/" className="inline-flex items-center gap-3 group">
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-tr from-[#397CFF] to-[#41D8FF] p-0.5 shadow-xl shadow-[#397CFF]/30 group-hover:scale-110 group-hover:rotate-6 transition-all duration-300">
-                  <div className="w-full h-full bg-[#06101D] rounded-[10px] flex items-center justify-center">
-                    <GraduationCap className="w-6 h-6 text-[#41D8FF] group-hover:text-white transition-colors" />
-                  </div>
+              <div className="space-y-3">
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#081827] border border-[#162942] text-xs font-semibold text-[#41D8FF]">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Student & Faculty Learning Portal</span>
                 </div>
-                <span className="font-extrabold text-2xl tracking-tight text-white">
-                  CAREER <span className="text-[#41D8FF]">TRANSFORMER</span>
-                </span>
-              </Link>
-            </FadeIn>
-
-            <FadeIn delay={0.1}>
-              <div className="space-y-4">
-                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#081827] border border-[#162942] text-xs font-semibold text-[#41D8FF] shadow-inner">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-                  <span>Student Learning & Career Portal</span>
-                </div>
-                <h1 className="text-3xl sm:text-5xl font-extrabold text-white tracking-tight leading-tight">
-                  Enter Your Practical <br />
-                  <span className="bg-gradient-to-r from-[#41D8FF] via-[#397CFF] to-[#80E5FF] bg-clip-text text-transparent">
-                    Analytics Workbench
-                  </span>
+                <h1 className="text-3xl sm:text-4xl font-extrabold tracking-tight text-white leading-tight">
+                  Transform Your Skills. <br />
+                  <span className="shimmer-text">Build Your Career.</span>
                 </h1>
-                <p className="text-sm sm:text-base text-[#94A3B8] max-w-lg mx-auto lg:mx-0 leading-relaxed">
-                  Continue your SQL queries, Power BI data models, Python pipelines, and 1-on-1 mentor code reviews with lifetime access.
+                <p className="text-sm text-[#94A3B8] leading-relaxed">
+                  Access live cohorts, interactive code sandboxes, graded SQL assignments, and 1-on-1 mentor feedback in your personal dashboard.
                 </p>
               </div>
-            </FadeIn>
 
-            {/* 3D Floating Feature Pillars */}
-            <FadeIn delay={0.2}>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
-                <div className="p-4 rounded-xl bg-[#081827]/80 border border-[#162942] hover:border-[#397CFF]/50 transition-all duration-300 shadow-lg backdrop-blur-md text-left group">
-                  <div className="w-8 h-8 rounded-lg bg-[#397CFF]/15 border border-[#397CFF]/30 flex items-center justify-center text-[#41D8FF] mb-2 group-hover:scale-110 transition-transform">
-                    <Database className="w-4 h-4" />
+              {/* Portal Highlights Cards */}
+              <div className="grid grid-cols-2 gap-3 pt-2">
+                <div className="p-4 rounded-2xl bg-[#081827]/80 border border-[#162942] space-y-2 backdrop-blur-md">
+                  <div className="w-8 h-8 rounded-lg bg-[#397CFF]/15 border border-[#397CFF]/30 flex items-center justify-center text-[#41D8FF]">
+                    <Video className="w-4 h-4" />
                   </div>
-                  <strong className="text-xs font-bold text-white block">SQL & Python Labs</strong>
-                  <span className="text-[11px] text-[#64748B]">Real business datasets</span>
+                  <strong className="text-xs font-bold text-white block">Live & Replay Studio</strong>
+                  <span className="text-[11px] text-[#64748B] block">Interactive meetings and exact session recordings</span>
                 </div>
 
-                <div className="p-4 rounded-xl bg-[#081827]/80 border border-[#162942] hover:border-[#41D8FF]/50 transition-all duration-300 shadow-lg backdrop-blur-md text-left group">
-                  <div className="w-8 h-8 rounded-lg bg-[#41D8FF]/15 border border-[#41D8FF]/30 flex items-center justify-center text-[#41D8FF] mb-2 group-hover:scale-110 transition-transform">
-                    <Code2 className="w-4 h-4" />
+                <div className="p-4 rounded-2xl bg-[#081827]/80 border border-[#162942] space-y-2 backdrop-blur-md">
+                  <div className="w-8 h-8 rounded-lg bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+                    <FileCode2 className="w-4 h-4" />
                   </div>
-                  <strong className="text-xs font-bold text-white block">6 Portfolio Capstones</strong>
-                  <span className="text-[11px] text-[#64748B]">Line-by-line review</span>
+                  <strong className="text-xs font-bold text-white block">Graded Code Labs</strong>
+                  <span className="text-[11px] text-[#64748B] block">SQL window queries & real dataset capstones</span>
                 </div>
 
-                <div className="p-4 rounded-xl bg-[#081827]/80 border border-[#162942] hover:border-emerald-500/50 transition-all duration-300 shadow-lg backdrop-blur-md text-left group">
-                  <div className="w-8 h-8 rounded-lg bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mb-2 group-hover:scale-110 transition-transform">
-                    <LineChart className="w-4 h-4" />
+                <div className="p-4 rounded-2xl bg-[#081827]/80 border border-[#162942] space-y-2 backdrop-blur-md">
+                  <div className="w-8 h-8 rounded-lg bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                    <Layers className="w-4 h-4" />
                   </div>
-                  <strong className="text-xs font-bold text-white block">Power BI & Tableau</strong>
-                  <span className="text-[11px] text-[#64748B]">Executive dashboards</span>
+                  <strong className="text-xs font-bold text-white block">6 Portfolio Builds</strong>
+                  <span className="text-[11px] text-[#64748B] block">Production projects ready for recruiter reviews</span>
                 </div>
-              </div>
-            </FadeIn>
 
-            {/* Testimonial Snippet */}
-            <FadeIn delay={0.3}>
-              <div className="hidden sm:flex items-center gap-4 p-4 rounded-xl bg-[#06101D]/70 border border-[#162942] backdrop-blur-sm">
-                <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-[#397CFF] to-[#41D8FF] flex items-center justify-center text-[#06101D] font-bold text-sm">
-                  AP
-                </div>
-                <div className="text-left text-xs">
-                  <div className="flex items-center gap-1 text-amber-400">
-                    {"★★★★★"}
+                <div className="p-4 rounded-2xl bg-[#081827]/80 border border-[#162942] space-y-2 backdrop-blur-md">
+                  <div className="w-8 h-8 rounded-lg bg-purple-500/15 border border-purple-500/30 flex items-center justify-center text-purple-400">
+                    <Award className="w-4 h-4" />
                   </div>
-                  <p className="text-[#94A3B8] italic mt-0.5">
-                    "The feedback on my SQL portfolio projects helped me crack my first Data Analyst role at a product startup within 60 days."
-                  </p>
-                  <span className="text-[11px] font-semibold text-white mt-0.5 block">
-                    — Aarav Patel, Data Analyst at Swiggy
-                  </span>
+                  <strong className="text-xs font-bold text-white block">Verified Credentials</strong>
+                  <span className="text-[11px] text-[#64748B] block">Tamper-proof verifiable certificates</span>
                 </div>
               </div>
             </FadeIn>
           </div>
 
-          {/* Right Column: 3D Perspective Glassmorphism Login Card */}
+          {/* Right Column: Clean & Secure Login Form */}
           <div className="lg:col-span-6 w-full max-w-md mx-auto">
             <FadeIn delay={0.15}>
-              <TiltCard3D maxTilt={6} scale={1.02} glowColor="rgba(65, 216, 255, 0.3)">
-                <div className="bg-[#081827]/90 border border-[#162942] rounded-3xl p-6 sm:p-9 shadow-2xl space-y-6 backdrop-blur-xl relative overflow-hidden group">
-                  {/* Subtle Top Gradient Bar */}
+              <TiltCard3D maxTilt={6} scale={1.02} glowColor="rgba(65, 216, 255, 0.25)">
+                <div className="bg-[#081827]/95 border border-[#162942] rounded-3xl p-6 sm:p-9 shadow-2xl space-y-6 backdrop-blur-xl relative overflow-hidden group">
+                  {/* Top Gradient Bar */}
                   <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-[#397CFF] via-[#41D8FF] to-[#397CFF]" />
 
                   {/* Header */}
                   <div className="space-y-1 text-center [transform:translateZ(10px)]">
+                    <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#06101D] border border-[#162942] text-[11px] text-[#41D8FF] mb-2 shadow-inner">
+                      <ShieldCheck className="w-3.5 h-3.5" />
+                      <span>Encrypted Gateway</span>
+                    </div>
                     <h2 className="text-2xl font-extrabold tracking-tight text-white">
-                      Welcome Back
+                      Sign In
                     </h2>
                     <p className="text-xs text-[#94A3B8]">
-                      Sign in with your email and password to access your dashboard
+                      Enter your account credentials to access your portal
                     </p>
                   </div>
 
-                  {/* 1-Click Interactive Role Switcher */}
-                  <div className="p-3 rounded-2xl bg-[#06101D] border border-[#162942] space-y-2 [transform:translateZ(15px)]">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-bold text-[#41D8FF] uppercase tracking-wider flex items-center gap-1.5">
-                        <Sparkles className="w-3.5 h-3.5 text-[#41D8FF] animate-pulse" /> 1-Click Instant Demo Login:
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-1.5 text-xs">
-                      <button
-                        type="button"
-                        onClick={() => handleDemoFill("student")}
-                        className={`px-3 py-2 rounded-xl border transition-all duration-200 cursor-pointer text-center font-medium flex items-center justify-center gap-1.5 ${
-                          activeRole === "student" && email === "student@careertransformer.in"
-                            ? "bg-[#0C1A2B] border-[#41D8FF] text-[#41D8FF] shadow-md shadow-[#41D8FF]/10 font-bold"
-                            : "bg-[#081827] border-[#162942] text-[#94A3B8] hover:border-[#397CFF]/40 hover:text-white"
-                        }`}
-                      >
-                        <UserCheck className="w-3.5 h-3.5" />
-                        <span>Student</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleDemoFill("alumni")}
-                        className={`px-3 py-2 rounded-xl border transition-all duration-200 cursor-pointer text-center font-medium flex items-center justify-center gap-1.5 ${
-                          activeRole === "alumni" && email === "alumni@careertransformer.in"
-                            ? "bg-[#0C1A2B] border-emerald-400 text-emerald-400 shadow-md shadow-emerald-400/10 font-bold"
-                            : "bg-[#081827] border-[#162942] text-[#94A3B8] hover:border-emerald-500/40 hover:text-white"
-                        }`}
-                      >
-                        <GraduationCap className="w-3.5 h-3.5" />
-                        <span>Alumni</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleDemoFill("admin")}
-                        className={`px-3 py-2 rounded-xl border transition-all duration-200 cursor-pointer text-center font-medium flex items-center justify-center gap-1.5 ${
-                          activeRole === "admin" && (email === "pawasesahil2004@gmail.com" || email === "admin@careertransformer.in")
-                            ? "bg-[#0C1A2B] border-amber-400 text-amber-400 shadow-md shadow-amber-400/10 font-bold"
-                            : "bg-[#081827] border-[#162942] text-[#94A3B8] hover:border-amber-500/40 hover:text-white"
-                        }`}
-                      >
-                        <ShieldCheck className="w-3.5 h-3.5" />
-                        <span>Admin</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {isLoggedOut && !error && (
-                    <motion.div
-                      initial={{ opacity: 0, y: -8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="p-3.5 bg-emerald-500/10 border border-emerald-500/30 rounded-xl flex items-center gap-2.5 text-xs sm:text-sm text-emerald-400 [transform:translateZ(10px)]"
-                    >
-                      <CheckCircle2 className="w-4 h-4 flex-shrink-0 text-emerald-400" />
-                      <span>You have been safely signed out of your account.</span>
-                    </motion.div>
-                  )}
-
+                  {/* Error Notification */}
                   {error && (
-                    <motion.div
-                      initial={{ opacity: 0, y: -8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className="p-3.5 bg-red-500/10 border border-red-500/30 rounded-xl flex items-center gap-2 text-xs sm:text-sm text-red-400 [transform:translateZ(10px)]"
-                    >
-                      <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                    <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-xs text-rose-300 flex items-start gap-2.5 [transform:translateZ(20px)] animate-fadeIn">
+                      <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0 mt-0.5" />
                       <span>{error}</span>
-                    </motion.div>
+                    </div>
                   )}
 
-                  {/* Form */}
-                  <form onSubmit={handleLogin} className="space-y-4 [transform:translateZ(10px)]">
-                    <div className="space-y-1">
-                      <label className="text-xs font-semibold text-[#F5F8FC] block">
+                  {/* Login Form */}
+                  <form onSubmit={handleLogin} className="space-y-4 [transform:translateZ(20px)]">
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-semibold text-[#CBD5E1] block">
                         Email Address
                       </label>
                       <div className="relative">
-                        <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-[#64748B]">
-                          <Mail className="w-4 h-4" />
-                        </div>
+                        <Mail className="w-4 h-4 text-[#64748B] absolute left-3.5 top-1/2 -translate-y-1/2" />
                         <input
                           type="email"
-                          placeholder="you@example.com"
+                          required
                           value={email}
                           onChange={(e) => setEmail(e.target.value)}
-                          required
-                          className="w-full bg-[#06101D] border border-[#162942] rounded-xl pl-10 pr-4 py-3 text-xs sm:text-sm text-white placeholder-[#64748B] focus:outline-none focus:border-[#41D8FF] transition-colors shadow-inner"
+                          placeholder="name@example.com"
+                          className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-[#06101D] border border-[#162942] text-sm text-white placeholder-[#64748B] focus:outline-none focus:border-[#41D8FF] focus:ring-1 focus:ring-[#41D8FF] transition-all"
                         />
                       </div>
                     </div>
 
-                    <div className="space-y-1">
+                    <div className="space-y-1.5">
                       <div className="flex items-center justify-between">
-                        <label className="text-xs font-semibold text-[#F5F8FC] block">
+                        <label className="text-xs font-semibold text-[#CBD5E1]">
                           Password
                         </label>
                         <Link
                           href="/forgot-password"
-                          className="text-xs text-[#41D8FF] hover:underline font-medium"
+                          className="text-[11px] font-semibold text-[#41D8FF] hover:underline"
                         >
                           Forgot password?
                         </Link>
                       </div>
                       <div className="relative">
-                        <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-[#64748B]">
-                          <Lock className="w-4 h-4" />
-                        </div>
+                        <Lock className="w-4 h-4 text-[#64748B] absolute left-3.5 top-1/2 -translate-y-1/2" />
                         <input
                           type={showPassword ? "text" : "password"}
-                          placeholder="••••••••••••"
+                          required
                           value={password}
                           onChange={(e) => setPassword(e.target.value)}
-                          required
-                          className="w-full bg-[#06101D] border border-[#162942] rounded-xl pl-10 pr-10 py-3 text-xs sm:text-sm text-white placeholder-[#64748B] focus:outline-none focus:border-[#41D8FF] transition-colors shadow-inner"
+                          placeholder="Enter your password"
+                          className="w-full pl-10 pr-10 py-2.5 rounded-xl bg-[#06101D] border border-[#162942] text-sm text-white placeholder-[#64748B] focus:outline-none focus:border-[#41D8FF] focus:ring-1 focus:ring-[#41D8FF] transition-all font-mono"
                         />
                         <button
                           type="button"
                           onClick={() => setShowPassword(!showPassword)}
-                          className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-[#64748B] hover:text-[#41D8FF] transition-colors cursor-pointer"
+                          className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[#64748B] hover:text-[#CBD5E1] transition-colors cursor-pointer"
                         >
-                          {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                          {showPassword ? (
+                            <EyeOff className="w-4 h-4" />
+                          ) : (
+                            <Eye className="w-4 h-4" />
+                          )}
                         </button>
                       </div>
                     </div>
 
                     <div className="flex items-center justify-between pt-1">
-                      <label className="flex items-center gap-2 cursor-pointer select-none text-xs text-[#94A3B8]">
+                      <label className="flex items-center gap-2 cursor-pointer text-xs text-[#94A3B8]">
                         <input
                           type="checkbox"
                           checked={rememberMe}
                           onChange={(e) => setRememberMe(e.target.checked)}
-                          className="w-3.5 h-3.5 rounded bg-[#06101D] border-[#162942] text-[#397CFF] focus:ring-0 focus:ring-offset-0"
+                          className="w-4 h-4 rounded bg-[#06101D] border-[#162942] text-[#397CFF] focus:ring-0 focus:ring-offset-0 cursor-pointer"
                         />
                         <span>Remember my session</span>
                       </label>
                     </div>
 
-                    <div className="pt-2">
-                      <Button
-                        type="submit"
-                        variant="cyan"
-                        size="lg"
-                        isLoading={isLoading}
-                        className="w-full justify-center font-bold shadow-xl shadow-[#41D8FF]/20 text-[#06101D] text-base hover:scale-[1.02] active:scale-[0.98] transition-transform"
-                      >
-                        <span>Sign In to Portal</span>
-                        <ArrowRight className="w-4 h-4 ml-2" />
-                      </Button>
-                    </div>
+                    <Button
+                      type="submit"
+                      variant="cyan"
+                      size="lg"
+                      className="w-full font-bold shadow-xl shadow-[#41D8FF]/20 mt-2 cursor-pointer"
+                      disabled={isLoading}
+                    >
+                      {isLoading ? (
+                        <div className="flex items-center justify-center gap-2">
+                          <div className="w-4 h-4 border-2 border-[#06101D] border-t-transparent rounded-full animate-spin" />
+                          <span>Verifying Credentials...</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-center gap-2">
+                          <span>Sign In</span>
+                          <ArrowRight className="w-4 h-4" />
+                        </div>
+                      )}
+                    </Button>
                   </form>
 
-                  {/* Footer & Registration Link */}
-                  <div className="pt-4 border-t border-[#162942] text-center text-xs text-[#94A3B8] [transform:translateZ(5px)]">
+                  {/* Register link */}
+                  <div className="text-center pt-2 text-xs text-[#94A3B8] border-t border-[#162942] [transform:translateZ(10px)]">
                     Don't have an account yet?{" "}
-                    <Link href="/register" className="text-[#41D8FF] font-bold hover:underline">
+                    <Link
+                      href="/register"
+                      className="font-bold text-[#41D8FF] hover:underline inline-flex items-center gap-1"
+                    >
                       Enroll & Create Account →
                     </Link>
                   </div>
@@ -362,14 +275,22 @@ export default function LoginPage() {
               </TiltCard3D>
             </FadeIn>
 
-            {/* Encryption Trust Badge */}
-            <div className="flex items-center justify-center gap-2 text-xs text-[#64748B] mt-6">
-              <ShieldCheck className="w-4 h-4 text-emerald-400" />
+            {/* Footer Security Indicator */}
+            <div className="text-center text-[11px] text-[#64748B] flex items-center justify-center gap-2 mt-4">
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
               <span>256-bit TLS Encrypted Authentication Gateway</span>
             </div>
           </div>
         </div>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-[#040B14] flex items-center justify-center text-white">Loading...</div>}>
+      <LoginFormContent />
+    </Suspense>
   );
 }

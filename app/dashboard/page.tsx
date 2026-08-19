@@ -15,11 +15,11 @@ import {
   CheckCircle2,
   Clock,
   Sparkles,
-  Calendar,
-  MessageSquare,
+  Radio,
+  Video,
   Users,
+  Calendar,
 } from "lucide-react";
-import { formatINR, formatDate } from "@/lib/utils";
 
 export default async function StudentDashboardPage() {
   const session = await getSession();
@@ -50,12 +50,10 @@ export default async function StudentDashboardPage() {
   const activeEnrollment = enrollments[0];
   const course = activeEnrollment?.course;
 
-  // Total lessons in enrolled course
   const totalLessons = course
     ? course.modules.reduce((acc, m) => acc + m.lessons.length, 0)
     : 0;
 
-  // Completed lessons by this student
   const completedProgress = await prisma.lessonProgress.findMany({
     where: {
       userId: session.id,
@@ -66,11 +64,8 @@ export default async function StudentDashboardPage() {
 
   const completedCount = completedProgress.length;
   const progressPercent = totalLessons > 0 ? Math.round((completedCount / totalLessons) * 100) : 0;
-
-  // Completed lesson IDs set
   const completedLessonIds = new Set(completedProgress.map((p) => p.lessonId));
 
-  // Find next uncompleted lesson
   let nextLesson = null;
   if (course) {
     for (const m of course.modules) {
@@ -84,21 +79,18 @@ export default async function StudentDashboardPage() {
     }
   }
 
-  // Fetch project submissions for this student
   const projectSubmissions = await prisma.projectSubmission.findMany({
     where: { userId: session.id },
     include: { project: true },
   });
 
-  // Fetch student certificate if issued
   const certificate = await prisma.certificate.findFirst({
     where: { userId: session.id },
   });
 
   return (
     <div className="space-y-8">
-      {/* 1. Greeting Banner */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-6 sm:p-8 rounded-2xl bg-gradient-to-r from-[#0C1A2B] via-[#081827] to-[#0C1A2B] border border-[#162942]">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-6 sm:p-8 rounded-2xl bg-gradient-to-r from-[#0C1A2B] via-[#081827] to-[#0C1A2B] border border-[#162942] shadow-2xl">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <span className="px-2.5 py-0.5 rounded-full bg-[#397CFF]/15 text-[#41D8FF] border border-[#397CFF]/30 text-xs font-semibold">
@@ -110,22 +102,26 @@ export default async function StudentDashboardPage() {
             Welcome back, {session.fullName}!
           </h1>
           <p className="text-xs sm:text-sm text-[#94A3B8]">
-            Track your progress, build portfolio projects, and connect with your analytics mentors.
+            Track your analytics progress, join live classes, watch recorded masterclasses, and submit portfolio capstones.
           </p>
         </div>
 
-        {course && (
-          <Link href={`/dashboard/courses/${course.id}`}>
-            <Button variant="cyan" size="md" className="font-bold flex-shrink-0">
-              <PlayCircle className="w-4 h-4 mr-2" /> Continue Learning →
+        <div className="flex items-center gap-3 flex-shrink-0">
+          <Link href="/dashboard/live">
+            <Button variant="outline" size="md" className="border-rose-500/40 text-rose-300 hover:bg-rose-500/10 font-bold">
+              <Radio className="w-4 h-4 mr-1.5 text-rose-400" /> Live Stream
             </Button>
           </Link>
-        )}
+          <Link href="/dashboard/recorded">
+            <Button variant="cyan" size="md" className="font-bold">
+              <Video className="w-4 h-4 mr-1.5" /> Recorded Classes
+            </Button>
+          </Link>
+        </div>
       </div>
 
-      {/* 2. Top Metric Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-        <div className="p-5 rounded-2xl bg-[#081827] border border-[#162942] space-y-2">
+        <div className="p-5 rounded-2xl bg-[#081827] border border-[#162942] space-y-2 shadow-lg">
           <div className="flex items-center justify-between text-[#94A3B8]">
             <span className="text-xs uppercase font-bold text-[#64748B]">Course Progress</span>
             <BookOpen className="w-4 h-4 text-[#41D8FF]" />
@@ -138,7 +134,20 @@ export default async function StudentDashboardPage() {
           </p>
         </div>
 
-        <div className="p-5 rounded-2xl bg-[#081827] border border-[#162942] space-y-2">
+        <div className="p-5 rounded-2xl bg-[#081827] border border-[#162942] space-y-2 shadow-lg">
+          <div className="flex items-center justify-between text-[#94A3B8]">
+            <span className="text-xs uppercase font-bold text-[#64748B]">Live Stream</span>
+            <Radio className="w-4 h-4 text-rose-400 animate-pulse" />
+          </div>
+          <div className="text-2xl sm:text-3xl font-extrabold text-rose-400">
+            Live Now
+          </div>
+          <p className="text-[11px] text-[#94A3B8]">
+            Window Functions in SQL (74 online)
+          </p>
+        </div>
+
+        <div className="p-5 rounded-2xl bg-[#081827] border border-[#162942] space-y-2 shadow-lg">
           <div className="flex items-center justify-between text-[#94A3B8]">
             <span className="text-xs uppercase font-bold text-[#64748B]">Portfolio Projects</span>
             <FolderGit2 className="w-4 h-4 text-[#397CFF]" />
@@ -151,20 +160,7 @@ export default async function StudentDashboardPage() {
           </p>
         </div>
 
-        <div className="p-5 rounded-2xl bg-[#081827] border border-[#162942] space-y-2">
-          <div className="flex items-center justify-between text-[#94A3B8]">
-            <span className="text-xs uppercase font-bold text-[#64748B]">Assignments</span>
-            <FileText className="w-4 h-4 text-amber-400" />
-          </div>
-          <div className="text-2xl sm:text-3xl font-extrabold text-white">
-            3 Active
-          </div>
-          <p className="text-[11px] text-[#94A3B8]">
-            End-of-module capstone tasks
-          </p>
-        </div>
-
-        <div className="p-5 rounded-2xl bg-[#081827] border border-[#162942] space-y-2">
+        <div className="p-5 rounded-2xl bg-[#081827] border border-[#162942] space-y-2 shadow-lg">
           <div className="flex items-center justify-between text-[#94A3B8]">
             <span className="text-xs uppercase font-bold text-[#64748B]">Certificate Status</span>
             <Award className="w-4 h-4 text-emerald-400" />
@@ -174,8 +170,8 @@ export default async function StudentDashboardPage() {
           </div>
           <p className="text-[11px] text-[#94A3B8]">
             {certificate ? (
-              <Link href={`/verify/${certificate.certificateId}`} className="text-[#41D8FF] hover:underline font-semibold">
-                View Public Credential →
+              <Link href={"/verify/" + certificate.certificateId} className="text-[#41D8FF] hover:underline font-semibold">
+                View Credential →
               </Link>
             ) : (
               "Complete all labs & projects"
@@ -184,162 +180,111 @@ export default async function StudentDashboardPage() {
         </div>
       </div>
 
-      {/* 3. Main Enrolled Course Section & Next Lesson */}
-      {course ? (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-          {/* Left Enrolled Course Progression */}
-          <div className="lg:col-span-8 space-y-6">
-            <div className="rounded-2xl bg-[#081827] border border-[#162942] p-6 sm:p-8 space-y-6 shadow-xl">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#162942] pb-6">
-                <div>
-                  <Badge variant="cyan" size="sm">Active Cohort</Badge>
-                  <h2 className="text-xl sm:text-2xl font-bold text-white mt-1">
-                    {course.title}
-                  </h2>
-                  <p className="text-xs text-[#94A3B8] mt-0.5">{course.tagline}</p>
-                </div>
-                <Link href={`/dashboard/courses/${course.id}`}>
-                  <Button variant="primary" size="sm" className="gap-1.5 flex-shrink-0">
-                    <BookOpen className="w-4 h-4" /> Open Course Player
-                  </Button>
-                </Link>
-              </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="p-6 rounded-2xl bg-[#081827] border border-rose-500/30 bg-gradient-to-br from-rose-950/20 via-[#081827] to-[#06101D] space-y-4 shadow-xl flex flex-col justify-between">
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40 flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-rose-400 animate-ping" />
+                STREAMING LIVE NOW
+              </span>
+              <span className="text-xs text-[#94A3B8] font-mono">74 attending</span>
+            </div>
+            <h3 className="text-base font-bold text-white leading-snug">
+              Mastering Real-Time SQL Queries & Window Functions
+            </h3>
+            <p className="text-xs text-[#94A3B8] leading-relaxed">
+              Join the live mentorship session with Sahil Pawase covering LEAD, LAG, DENSE_RANK(), and partitioning query logic.
+            </p>
+          </div>
 
-              {/* Progress bar */}
-              <div className="space-y-2">
-                <div className="flex justify-between text-xs text-[#94A3B8] font-medium">
-                  <span>Overall Curriculum Completion</span>
-                  <span className="text-[#41D8FF] font-bold">{progressPercent}%</span>
-                </div>
-                <div className="w-full h-3 rounded-full bg-[#06101D] border border-[#162942] overflow-hidden p-0.5">
-                  <div
-                    className="h-full rounded-full bg-gradient-to-r from-[#397CFF] to-[#41D8FF] transition-all duration-500"
-                    style={{ width: `${progressPercent}%` }}
-                  />
-                </div>
-              </div>
+          <div className="pt-3 border-t border-[#162942] flex items-center justify-between">
+            <span className="text-xs text-[#CBD5E1]">Sahil Pawase (Lead Architect)</span>
+            <Link href="/dashboard/live">
+              <Button variant="outline" size="sm" className="border-rose-500 text-rose-300 hover:bg-rose-500/20 font-bold gap-1">
+                <Radio className="w-3.5 h-3.5" /> Enter Classroom
+              </Button>
+            </Link>
+          </div>
+        </div>
 
-              {/* Next Up Lesson Card */}
-              {nextLesson && (
-                <div className="p-4 sm:p-5 rounded-xl bg-[#06101D] border border-[#162942] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <div className="space-y-1">
-                    <span className="text-[10px] uppercase font-bold tracking-wider text-[#41D8FF]">
-                      Next Recommended Lesson:
-                    </span>
-                    <h3 className="text-sm sm:text-base font-bold text-white">
-                      {nextLesson.lesson.title}
-                    </h3>
-                    <p className="text-xs text-[#64748B]">
-                      {nextLesson.module.title} • {nextLesson.lesson.durationMinutes} Mins
-                    </p>
-                  </div>
-                  <Link href={`/dashboard/courses/${course.id}`}>
-                    <Button variant="cyan" size="sm" className="gap-1 font-semibold flex-shrink-0">
-                      <PlayCircle className="w-4 h-4" /> Resume Lab
-                    </Button>
-                  </Link>
-                </div>
-              )}
+        <div className="p-6 rounded-2xl bg-[#081827] border border-[#41D8FF]/30 bg-gradient-to-br from-[#0C1A2B] via-[#081827] to-[#06101D] space-y-4 shadow-xl flex flex-col justify-between">
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-[#397CFF]/20 text-[#41D8FF] border border-[#41D8FF]/40 flex items-center gap-1.5">
+                <Video className="w-3.5 h-3.5" /> FEATURED MASTERCLASS
+              </span>
+              <span className="text-xs text-amber-400 font-bold">★ 4.9 (140 reviews)</span>
+            </div>
+            <h3 className="text-base font-bold text-white leading-snug">
+              Power BI Executive Dashboard Studio: End-to-End Build
+            </h3>
+            <p className="text-xs text-[#94A3B8] leading-relaxed">
+              Full 52-minute masterclass building executive KPI cards, star schemas, dynamic DAX measures, and drill-through pages.
+            </p>
+          </div>
 
-              {/* Modules status overview */}
-              <div className="space-y-3 pt-2">
-                <h4 className="text-xs uppercase tracking-wider font-bold text-[#64748B]">
-                  Module Breakdown & Completion
-                </h4>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {course.modules.map((m, idx) => {
-                    const modCompleted = m.lessons.filter((l) => completedLessonIds.has(l.id)).length;
-                    const isAllDone = modCompleted === m.lessons.length && m.lessons.length > 0;
+          <div className="pt-3 border-t border-[#162942] flex items-center justify-between">
+            <span className="text-xs text-[#CBD5E1]">52 mins • 3 Chapters</span>
+            <Link href="/dashboard/recorded">
+              <Button variant="cyan" size="sm" className="font-bold gap-1">
+                <PlayCircle className="w-3.5 h-3.5" /> Watch Masterclass
+              </Button>
+            </Link>
+          </div>
+        </div>
+      </div>
 
-                    return (
-                      <div
-                        key={m.id}
-                        className="p-3 rounded-xl bg-[#06101D]/70 border border-[#162942] flex items-center justify-between text-xs"
-                      >
-                        <div className="space-y-0.5 min-w-0 pr-2">
-                          <span className="font-bold text-white block truncate">
-                            0{idx + 1}. {m.title.replace(/^Module \d+: /, "")}
-                          </span>
-                          <span className="text-[11px] text-[#64748B]">
-                            {modCompleted} of {m.lessons.length} lessons done
-                          </span>
-                        </div>
-                        {isAllDone ? (
-                          <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
-                        ) : (
-                          <span className="text-[11px] text-[#94A3B8] font-mono flex-shrink-0">
-                            {Math.round((modCompleted / m.lessons.length) * 100)}%
-                          </span>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
+      {course && (
+        <div className="rounded-2xl bg-[#081827] border border-[#162942] p-6 sm:p-8 space-y-6 shadow-xl">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#162942] pb-6">
+            <div>
+              <Badge variant="cyan" size="sm">Enrolled Curriculum</Badge>
+              <h2 className="text-xl sm:text-2xl font-bold text-white mt-1">
+                {course.title}
+              </h2>
+              <p className="text-xs text-[#94A3B8] mt-0.5">{course.tagline}</p>
+            </div>
+            <Link href={"/dashboard/courses/" + course.id}>
+              <Button variant="primary" size="sm" className="gap-1.5 flex-shrink-0">
+                <BookOpen className="w-4 h-4" /> Open Course Player
+              </Button>
+            </Link>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex justify-between text-xs text-[#94A3B8] font-medium">
+              <span>Overall Curriculum Completion</span>
+              <span className="text-[#41D8FF] font-bold">{progressPercent}%</span>
+            </div>
+            <div className="w-full h-3 rounded-full bg-[#06101D] border border-[#162942] overflow-hidden p-0.5">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-[#397CFF] to-[#41D8FF] transition-all duration-500"
+                style={{ width: progressPercent + "%" }}
+              />
             </div>
           </div>
 
-          {/* Right Live Sessions & Mentor Hub */}
-          <div className="lg:col-span-4 space-y-6">
-            {/* Upcoming Live Sessions */}
-            <div className="rounded-2xl bg-[#081827] border border-[#162942] p-6 space-y-4 shadow-xl">
-              <div className="flex items-center gap-2 text-[#41D8FF]">
-                <Calendar className="w-5 h-5" />
-                <h3 className="text-base font-bold text-white">Upcoming Live Cohort Sessions</h3>
+          {nextLesson && (
+            <div className="p-4 sm:p-5 rounded-xl bg-[#06101D] border border-[#162942] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <span className="text-[10px] uppercase font-bold tracking-wider text-[#41D8FF]">
+                  Next Recommended Lesson:
+                </span>
+                <h3 className="text-sm sm:text-base font-bold text-white">
+                  {nextLesson.lesson.title}
+                </h3>
+                <p className="text-xs text-[#64748B]">
+                  {nextLesson.module.title} • {nextLesson.lesson.durationMinutes} Mins
+                </p>
               </div>
-
-              <div className="space-y-3 text-xs">
-                <div className="p-3.5 rounded-xl bg-[#06101D] border border-[#162942] space-y-1">
-                  <div className="flex items-center justify-between text-[#41D8FF] font-semibold">
-                    <span>Live SQL Interview Drills</span>
-                    <span className="text-[10px] bg-[#397CFF]/15 px-2 py-0.5 rounded">Saturday, 6 PM IST</span>
-                  </div>
-                  <p className="text-[#94A3B8]">
-                    Live whiteboarding CTEs, Window functions, and real product case studies with Rohan Verma.
-                  </p>
-                </div>
-
-                <div className="p-3.5 rounded-xl bg-[#06101D] border border-[#162942] space-y-1">
-                  <div className="flex items-center justify-between text-emerald-400 font-semibold">
-                    <span>Power BI Project Office Hours</span>
-                    <span className="text-[10px] bg-emerald-500/10 px-2 py-0.5 rounded">Tuesday, 8 PM IST</span>
-                  </div>
-                  <p className="text-[#94A3B8]">
-                    1-on-1 DAX troubleshooting, Star Schema validation, and custom tooltip design reviews.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Mentor Support Card */}
-            <div className="rounded-2xl bg-[#081827] border border-[#162942] p-6 space-y-4 shadow-xl">
-              <div className="flex items-center gap-2 text-amber-400">
-                <Users className="w-5 h-5" />
-                <h3 className="text-base font-bold text-white">Need Mentor Assistance?</h3>
-              </div>
-              <p className="text-xs text-[#94A3B8] leading-relaxed">
-                Stuck on a tricky SQL query, DAX calculation, or Python dataframe error? Ask your mentor directly.
-              </p>
-              <Link href="/dashboard/projects" className="block w-full">
-                <Button variant="secondary" size="sm" className="w-full justify-center">
-                  Submit Project for Review
+              <Link href={"/dashboard/courses/" + course.id}>
+                <Button variant="cyan" size="sm" className="gap-1 font-semibold flex-shrink-0">
+                  <PlayCircle className="w-4 h-4" /> Resume Lab
                 </Button>
               </Link>
             </div>
-          </div>
-        </div>
-      ) : (
-        <div className="p-12 text-center rounded-2xl bg-[#081827] border border-[#162942] space-y-4">
-          <BookOpen className="w-12 h-12 text-[#41D8FF] mx-auto" />
-          <h2 className="text-xl font-bold text-white">No Active Course Enrollment Found</h2>
-          <p className="text-xs text-[#94A3B8] max-w-md mx-auto">
-            You haven't enrolled in any program yet. Explore the Data Analytics Career Program to start learning.
-          </p>
-          <Link href="/courses/data-analytics">
-            <Button variant="cyan" size="md">
-              Explore Data Analytics Program
-            </Button>
-          </Link>
+          )}
         </div>
       )}
     </div>

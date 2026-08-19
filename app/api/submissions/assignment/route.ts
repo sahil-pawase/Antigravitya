@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { assignmentSubmissionSchema } from "@/lib/validations";
 
 export async function POST(request: Request) {
   try {
@@ -11,16 +10,13 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const validated = assignmentSubmissionSchema.safeParse(body);
+    const { assignmentId, submissionContent, fileUrl, marksObtained, feedback, status } = body;
 
-    if (!validated.success) {
-      return NextResponse.json(
-        { error: "Validation failed", details: validated.error.flatten().fieldErrors },
-        { status: 400 }
-      );
+    if (!assignmentId || !submissionContent) {
+      return NextResponse.json({ error: "Assignment ID and submission content are required." }, { status: 400 });
     }
 
-    const { assignmentId, submissionContent, fileUrl } = validated.data;
+    const finalStatus = status || (marksObtained !== undefined && marksObtained !== null ? "REVIEWED" : "SUBMITTED");
 
     const submission = await prisma.assignmentSubmission.upsert({
       where: {
@@ -32,20 +28,26 @@ export async function POST(request: Request) {
       update: {
         submissionContent,
         fileUrl: fileUrl || null,
-        status: "SUBMITTED",
+        status: finalStatus,
+        marksObtained: marksObtained !== undefined ? Number(marksObtained) : undefined,
+        feedback: feedback || undefined,
+        reviewedAt: finalStatus === "REVIEWED" ? new Date() : undefined,
       },
       create: {
         assignmentId,
         userId: session.id,
         submissionContent,
         fileUrl: fileUrl || null,
-        status: "SUBMITTED",
+        status: finalStatus,
+        marksObtained: marksObtained !== undefined ? Number(marksObtained) : null,
+        feedback: feedback || null,
+        reviewedAt: finalStatus === "REVIEWED" ? new Date() : null,
       },
     });
 
     return NextResponse.json({
       success: true,
-      message: "Assignment submitted successfully",
+      message: "Assignment assessment saved successfully",
       submission,
     });
   } catch (error) {

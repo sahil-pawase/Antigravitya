@@ -18,7 +18,20 @@ export default async function AdminAssignmentsPage() {
     orderBy: { createdAt: "desc" },
   });
 
-  const formatted = submissions.map((sub) => ({
+  const assignments = await prisma.assignment.findMany({
+    include: {
+      module: { include: { course: true } },
+      submissions: true,
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  const modules = await prisma.module.findMany({
+    include: { course: true },
+    orderBy: { orderIndex: "asc" },
+  });
+
+  const formattedSubmissions = submissions.map((sub) => ({
     id: sub.id,
     submissionContent: sub.submissionContent,
     fileUrl: sub.fileUrl,
@@ -39,5 +52,11 @@ export default async function AdminAssignmentsPage() {
     },
   }));
 
-  return <AdminAssignmentReviewClient initialSubmissions={formatted} />;
+  return (
+    <AdminAssignmentReviewClient
+      initialSubmissions={formattedSubmissions}
+      initialAssignments={assignments}
+      modules={modules}
+    />
+  );
 }

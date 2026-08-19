@@ -111,13 +111,23 @@ export function Footer() {
           <div className="space-y-4">
             <h4 className="text-xs font-bold uppercase tracking-wider text-[#FFFFFF]">Connect & Portals</h4>
             <ul className="space-y-2.5 text-sm">
-              <li className="flex items-center gap-2 text-xs hover:text-white transition-colors">
-                <Mail className="w-4 h-4 text-[#397CFF] flex-shrink-0" />
-                <span>admissions@careertransformer.in</span>
+              <li>
+                <a
+                  href="mailto:pawasesahil42@gmail.com?subject=Career%20Transformer%20Admissions%20Inquiry"
+                  className="flex items-center gap-2 text-xs text-[#41D8FF] hover:underline transition-colors"
+                >
+                  <Mail className="w-4 h-4 text-[#397CFF] flex-shrink-0" />
+                  <span>pawasesahil42@gmail.com</span>
+                </a>
               </li>
-              <li className="flex items-center gap-2 text-xs hover:text-white transition-colors">
-                <Phone className="w-4 h-4 text-[#41D8FF] flex-shrink-0" />
-                <span>+91 98765 43210 (Admissions)</span>
+              <li>
+                <a
+                  href="tel:+919876543210"
+                  className="flex items-center gap-2 text-xs hover:text-white transition-colors"
+                >
+                  <Phone className="w-4 h-4 text-[#41D8FF] flex-shrink-0" />
+                  <span>+91 98765 43210 (Admissions)</span>
+                </a>
               </li>
               <li className="flex items-start gap-2 text-xs hover:text-white transition-colors">
                 <MapPin className="w-4 h-4 text-[#10B981] flex-shrink-0 mt-0.5" />

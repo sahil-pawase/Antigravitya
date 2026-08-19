@@ -5,14 +5,14 @@ import { redirect } from "next/navigation";
 import {
   GraduationCap,
   LayoutDashboard,
+  Radio,
+  Video,
   BookOpen,
   FolderGit2,
   FileText,
   Award,
   User,
   Sparkles,
-  ExternalLink,
-  MessageSquare,
 } from "lucide-react";
 import { LogoutButton } from "@/components/auth/LogoutButton";
 
@@ -28,6 +28,8 @@ export default async function DashboardLayout({
 
   const sidebarLinks = [
     { label: "Overview", href: "/dashboard", icon: LayoutDashboard },
+    { label: "Live Classes", href: "/dashboard/live", icon: Radio, isLive: true },
+    { label: "Recorded Classes", href: "/dashboard/recorded", icon: Video },
     { label: "My Courses & Labs", href: "/dashboard/courses", icon: BookOpen },
     { label: "Portfolio Projects", href: "/dashboard/projects", icon: FolderGit2 },
     { label: "Assignments", href: "/dashboard/assignments", icon: FileText },
@@ -42,7 +44,7 @@ export default async function DashboardLayout({
         <div className="space-y-6">
           {/* Logo */}
           <Link href="/" className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-[#397CFF] to-[#41D8FF] p-0.5">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-[#397CFF] to-[#41D8FF] p-0.5 shadow-lg shadow-[#397CFF]/20">
               <div className="w-full h-full bg-[#06101D] rounded-[10px] flex items-center justify-center">
                 <GraduationCap className="w-5 h-5 text-[#41D8FF]" />
               </div>
@@ -65,10 +67,18 @@ export default async function DashboardLayout({
                 <Link
                   key={item.label}
                   href={item.href}
-                  className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-medium text-[#94A3B8] hover:text-[#F5F8FC] hover:bg-[#0C1A2B] border border-transparent hover:border-[#162942] transition-colors"
+                  className="flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-medium text-[#94A3B8] hover:text-[#F5F8FC] hover:bg-[#0C1A2B] border border-transparent hover:border-[#162942] transition-colors group"
                 >
-                  <Icon className="w-4 h-4 text-[#397CFF]" />
-                  <span>{item.label}</span>
+                  <div className="flex items-center gap-3">
+                    <Icon className="w-4 h-4 text-[#64748B] group-hover:text-[#41D8FF] transition-colors" />
+                    <span>{item.label}</span>
+                  </div>
+                  {item.isLive && (
+                    <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/30 flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
+                      LIVE
+                    </span>
+                  )}
                 </Link>
               );
             })}
@@ -98,20 +108,24 @@ export default async function DashboardLayout({
       {/* Mobile Top Header */}
       <header className="md:hidden bg-[#081827] border-b border-[#162942] p-4 flex items-center justify-between sticky top-0 z-30">
         <Link href="/" className="flex items-center gap-2">
-          <GraduationCap className="w-6 h-6 text-[#41D8FF]" />
-          <span className="font-bold text-sm text-white">Career Transformer</span>
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-[#397CFF] to-[#41D8FF] p-0.5">
+            <div className="w-full h-full bg-[#06101D] rounded-[6px] flex items-center justify-center">
+              <GraduationCap className="w-4 h-4 text-[#41D8FF]" />
+            </div>
+          </div>
+          <span className="font-extrabold text-sm text-white">CAREER TRANSFORMER</span>
         </Link>
-
-        <div className="flex items-center gap-3 text-xs">
-          <Link href="/dashboard" className="text-[#41D8FF] font-medium">Dashboard</Link>
-          <Link href="/dashboard/courses" className="text-[#94A3B8]">Courses</Link>
-          <Link href="/dashboard/projects" className="text-[#94A3B8]">Projects</Link>
-          <Link href="/dashboard/profile" className="text-[#94A3B8]">Profile</Link>
+        <div className="flex items-center gap-2">
+          <Link href="/dashboard/live" className="px-2 py-1 rounded-lg bg-rose-500/20 border border-rose-500/30 text-rose-300 text-xs font-bold flex items-center gap-1">
+            <Radio className="w-3 h-3 text-rose-400" />
+            <span>Live</span>
+          </Link>
+          <LogoutButton label="Exit" />
         </div>
       </header>
 
-      {/* Main Content Area */}
-      <main className="flex-1 p-4 sm:p-8 lg:p-10 max-w-7xl mx-auto w-full">
+      {/* Main Content Viewport */}
+      <main className="flex-1 p-4 sm:p-8 overflow-y-auto max-w-7xl mx-auto w-full">
         {children}
       </main>
     </div>
