@@ -1526,35 +1526,39 @@ export function ZoomLiveRoom({
             )}
           </button>
 
-          {/* Screen Share Toggle */}
-          <button
-            type="button"
-            onClick={toggleScreenShare}
-            className={`px-3.5 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer shadow-lg ${
-              isScreenSharing
-                ? "bg-emerald-500 text-[#06101D] font-extrabold shadow-emerald-500/30"
-                : "bg-[#081827] text-[#CBD5E1] border border-[#162942] hover:border-[#397CFF]/50 hover:text-white"
-            }`}
-            title="Share Screen (Desktop / Application / Chrome Tab)"
-          >
-            {isScreenSharing ? <MonitorOff className="w-4 h-4" /> : <Monitor className="w-4 h-4 text-[#41D8FF]" />}
-            <span className="hidden md:inline">{isScreenSharing ? "Stop Sharing" : "Share Screen"}</span>
-          </button>
+          {/* Screen Share Toggle (HOST ONLY) */}
+          {mode === "instructor" ? (
+            <button
+              type="button"
+              onClick={toggleScreenShare}
+              className={`px-3.5 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer shadow-lg ${
+                isScreenSharing
+                  ? "bg-emerald-500 text-[#06101D] font-extrabold shadow-emerald-500/30"
+                  : "bg-[#081827] text-[#CBD5E1] border border-[#162942] hover:border-[#397CFF]/50 hover:text-white"
+              }`}
+              title="Share Screen (Desktop / Window / Tab - Host Only)"
+            >
+              {isScreenSharing ? <MonitorOff className="w-4 h-4" /> : <Monitor className="w-4 h-4 text-[#41D8FF]" />}
+              <span className="hidden md:inline">{isScreenSharing ? "Stop Sharing" : "Share Screen 🖥️"}</span>
+            </button>
+          ) : null}
 
-          {/* Hand Raise Button */}
-          <button
-            type="button"
-            onClick={toggleHandRaise}
-            className={`px-3.5 py-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-lg ${
-              isHandRaised
-                ? "bg-amber-400 text-[#06101D] font-extrabold shadow-amber-400/30 scale-105"
-                : "bg-[#081827] text-[#CBD5E1] border border-[#162942] hover:border-amber-400/50 hover:text-white"
-            }`}
-            title="Raise Hand to speak"
-          >
-            <span className="text-sm">✋</span>
-            <span className="hidden sm:inline">{isHandRaised ? "Hand Raised" : "Raise Hand"}</span>
-          </button>
+          {/* Hand Raise Button (STUDENTS ONLY) */}
+          {mode === "student" && (
+            <button
+              type="button"
+              onClick={toggleHandRaise}
+              className={`px-3.5 py-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-lg ${
+                isHandRaised
+                  ? "bg-amber-400 text-[#06101D] font-extrabold shadow-amber-400/30 scale-105"
+                  : "bg-[#081827] text-[#CBD5E1] border border-[#162942] hover:border-amber-400/50 hover:text-white"
+              }`}
+              title="Raise Hand to speak with the Instructor"
+            >
+              <span className="text-sm">✋</span>
+              <span className="hidden sm:inline">{isHandRaised ? "Hand Raised" : "Raise Hand"}</span>
+            </button>
+          )}
 
           {/* Live Reactions Bar */}
           <div className="hidden sm:flex items-center gap-1 bg-[#081827] border border-[#162942] rounded-xl p-1">
@@ -1607,7 +1611,7 @@ export function ZoomLiveRoom({
               className="px-3 py-2 rounded-xl bg-[#081827] border border-amber-500/40 text-amber-300 hover:bg-amber-500/10 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
             >
               <HelpCircle className="w-4 h-4 text-amber-400" />
-              <span className="hidden sm:inline">Live Poll</span>
+              <span className="hidden sm:inline">{mode === "instructor" ? "Broadcast Poll" : "Live Poll"}</span>
             </button>
           )}
 
@@ -1623,7 +1627,7 @@ export function ZoomLiveRoom({
           )}
         </div>
 
-        {/* Right: Speaker Volume / End */}
+        {/* Right: Speaker Volume / End Call (HOST vs STUDENT) */}
         <div className="flex items-center gap-2">
           <button
             type="button"
@@ -1634,7 +1638,7 @@ export function ZoomLiveRoom({
             {isMutedSpeaker ? <VolumeX className="w-4 h-4 text-rose-400" /> : <Volume2 className="w-4 h-4 text-emerald-400" />}
           </button>
 
-          {mode === "instructor" && (
+          {mode === "instructor" ? (
             <button
               type="button"
               onClick={() => {
@@ -1646,21 +1650,44 @@ export function ZoomLiveRoom({
                 }
               }}
               className="px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer shadow-lg shadow-rose-600/30"
+              title="Host Control: End Live Class for Everyone"
             >
               <Square className="w-3.5 h-3.5 fill-white" />
-              <span>End Call</span>
+              <span>End Call (Host)</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                if (confirm("Leave this live classroom?")) {
+                  stopMediaTracks();
+                  setIsCameraOn(false);
+                  setIsMicOn(false);
+                  window.location.href = "/dashboard";
+                }
+              }}
+              className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-rose-950/60 border border-slate-700 hover:border-rose-500/40 text-slate-300 hover:text-rose-300 font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+              title="Leave Live Class"
+            >
+              <PhoneOff className="w-3.5 h-3.5 text-rose-400" />
+              <span>Leave Class</span>
             </button>
           )}
         </div>
       </div>
 
-      {/* 5. Live Participants Drawer */}
+      {/* 5. Live Participants Drawer & Host Moderation Controls */}
       {isParticipantsModalOpen && (
         <div className="p-4 bg-[#06101D] border-t border-[#162942] z-20">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               <Users className="w-4 h-4 text-[#41D8FF]" />
               <span className="text-xs font-bold text-white">Connected Call Participants ({participants.length} Active)</span>
+              {mode === "instructor" && (
+                <span className="px-2 py-0.5 rounded-full bg-amber-400/10 text-amber-300 border border-amber-400/30 text-[10px] font-bold">
+                  👑 Host Full Control
+                </span>
+              )}
             </div>
             <button
               type="button"
@@ -1682,7 +1709,10 @@ export function ZoomLiveRoom({
                     {p.name.substring(0, 2).toUpperCase()}
                   </div>
                   <div className="min-w-0">
-                    <span className="font-bold text-xs text-white block truncate">{p.name}</span>
+                    <div className="flex items-center gap-1">
+                      <span className="font-bold text-xs text-white block truncate">{p.name}</span>
+                      {p.isHost && <span className="text-[9px] text-amber-400 font-bold" title="Host">👑</span>}
+                    </div>
                     <span className="text-[10px] text-[#64748B] block">{p.role}</span>
                   </div>
                 </div>
