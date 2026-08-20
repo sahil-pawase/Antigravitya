@@ -112,18 +112,31 @@ export default function AdminLiveStudioPage() {
       // Broadcast across tabs
       try {
         const channel = new BroadcastChannel("career_transformer_zoom_room");
-        channel.postMessage({ type: action === "PING_ABSENT" || action === "PING_STUDENT" ? "INSTRUCTOR_PING" : "STREAM_UPDATED" });
+        channel.postMessage({
+          type:
+            action === "TRIGGER_ATTENDANCE"
+              ? "ATTENDANCE_CHECK_TRIGGERED"
+              : action === "CLOSE_ATTENDANCE"
+              ? "ATTENDANCE_CHECK_CLOSED"
+              : action === "PING_ABSENT" || action === "PING_STUDENT"
+              ? "INSTRUCTOR_PING"
+              : "STREAM_UPDATED",
+        });
         channel.close();
-      } catch (e) { }
+      } catch (e) {}
 
       setSuccessMsg(
         action === "END_AND_ARCHIVE"
           ? "🎉 Live stream ended and automatically published to Student Recorded Classes!"
+          : action === "TRIGGER_ATTENDANCE"
+          ? "📋 Live Attendance Check is now active and sent to all student dashboards!"
+          : action === "CLOSE_ATTENDANCE"
+          ? "🔒 Live Attendance Check closed."
           : action === "PING_ABSENT"
-            ? "🔔 Live class notification ping broadcasted to all absent students!"
-            : action === "PING_STUDENT"
-              ? `🔔 Live class notification ping sent to ${extraBody?.studentName || "student"}!`
-              : "Classroom updated in real-time!"
+          ? "🔔 Live class notification ping broadcasted to all absent students!"
+          : action === "PING_STUDENT"
+          ? `🔔 Live class notification ping sent to ${extraData?.studentName || "student"}!`
+          : "Classroom updated in real-time!"
       );
       setTimeout(() => setSuccessMsg(null), 3500);
     } catch (err: any) {

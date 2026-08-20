@@ -306,15 +306,32 @@ export async function POST(req: NextRequest) {
         if (body.datasetName) state.datasetName = body.datasetName;
         if (body.instructor) state.instructor = body.instructor;
       } else if (action === "TRIGGER_ATTENDANCE") {
+        const attId = "att-" + Date.now();
+        const attTitle = body.title || "Live Lecture Attendance Verification";
+        const attTime = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
         state.activeAttendanceCheck = {
-          id: "att-" + Date.now(),
+          id: attId,
           isActive: true,
-          promptTitle: body.title || "Live Lecture Attendance Verification",
-          startedAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          promptTitle: attTitle,
+          startedAt: attTime,
           totalPresentCount: 0,
           markedStudents: {},
         };
         state.pinnedNotice = `📋 ATTENDANCE CHECK OPEN: Please click "Mark Present" now to verify your live attendance!`;
+
+        const attPing: LivePingNotification = {
+          id: "ping-att-" + Date.now(),
+          targetStudentId: null,
+          targetStudentName: null,
+          targetStudentEmail: null,
+          instructorName: state.instructor || "Sahil Pawase",
+          streamTitle: state.title || "Live Masterclass",
+          message: `📋 Live Attendance Check is ACTIVE! Instructor ${state.instructor || "Sahil Pawase"} has requested your attendance verification. Please click "Mark Present" now!`,
+          timestamp: attTime,
+          expiresAt: Date.now() + 1000 * 60 * 10,
+        };
+        state.activePings = [attPing, ...(state.activePings || [])].slice(0, 15);
       } else if (action === "CLOSE_ATTENDANCE") {
         if (state.activeAttendanceCheck) {
           state.activeAttendanceCheck.isActive = false;

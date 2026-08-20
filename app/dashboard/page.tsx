@@ -21,6 +21,8 @@ import {
   Calendar,
 } from "lucide-react";
 
+import { StudentLiveAttendanceCard } from "@/components/dashboard/StudentLiveAttendanceCard";
+
 export default async function StudentDashboardPage() {
   const session = await getSession();
   if (!session) redirect("/login?redirect=/dashboard");
@@ -119,6 +121,9 @@ export default async function StudentDashboardPage() {
           </Link>
         </div>
       </div>
+
+      {/* Live Attendance / Live Stream Alert Widget */}
+      <StudentLiveAttendanceCard currentUserId={session.id} currentUserName={session.fullName} />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
         <div className="p-5 rounded-2xl bg-[#081827] border border-[#162942] space-y-2 shadow-lg">
