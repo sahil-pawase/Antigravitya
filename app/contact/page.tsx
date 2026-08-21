@@ -107,7 +107,7 @@ export default function ContactPage() {
                             Phone & WhatsApp
                           </strong>
                           <a href="tel:+919322840479" className="text-xs sm:text-sm text-emerald-400 font-semibold hover:underline block mt-1">
-                            +91 98765 43210
+                            +91 93228 40479
                           </a>
                           <p className="text-[11px] text-[#64748B]">Mon - Sat: 9:30 AM – 7:30 PM IST</p>
                         </div>
@@ -123,7 +123,7 @@ export default function ContactPage() {
                             Headquarters & Virtual Hub
                           </strong>
                           <p className="text-xs sm:text-sm text-[#CBD5E1] mt-1">
-                            Pune deccan
+                            Pune deccan Gymkhana , Pune Maharashtra 411004 , India
                           </p>
                           <p className="text-[11px] text-[#64748B]">All cohort sessions conducted live online pan-India</p>
                         </div>
