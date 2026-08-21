@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { registerSchema } from "@/lib/validations";
 import { hashPassword, setAuthCookie } from "@/lib/auth";
+import { normalizeDepartment } from "@/lib/departments";
 
 export async function POST(request: Request) {
   try {
@@ -15,8 +16,19 @@ export async function POST(request: Request) {
       );
     }
 
-    const { fullName, email, phone, password, education, college, gradYear, experienceLevel, city, careerGoal } =
-      validatedData.data;
+    const {
+      fullName,
+      email,
+      phone,
+      password,
+      department,
+      education,
+      college,
+      gradYear,
+      experienceLevel,
+      city,
+      careerGoal,
+    } = validatedData.data;
 
     // Check if email already exists
     const existingUser = await prisma.user.findUnique({
@@ -30,6 +42,7 @@ export async function POST(request: Request) {
       );
     }
 
+    const deptInfo = normalizeDepartment(department);
     const passwordHash = await hashPassword(password);
 
     // Create user and profile in transaction
@@ -43,6 +56,8 @@ export async function POST(request: Request) {
           create: {
             fullName,
             phone,
+            department: deptInfo.departmentName,
+            departmentId: deptInfo.departmentId,
             education,
             college,
             gradYear,
@@ -77,6 +92,8 @@ export async function POST(request: Request) {
       role: newUser.role,
       fullName: newUser.profile?.fullName || fullName,
       avatarUrl: newUser.profile?.avatarUrl,
+      department: newUser.profile?.department,
+      departmentId: newUser.profile?.departmentId,
     };
 
     await setAuthCookie(sessionPayload);

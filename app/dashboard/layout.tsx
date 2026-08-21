@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { LogoutButton } from "@/components/auth/LogoutButton";
 import { LiveCallNotificationBanner } from "@/components/live/LiveCallNotificationBanner";
+import { StudentNotificationDrawer } from "@/components/notifications/StudentNotificationDrawer";
 
 export default async function DashboardLayout({
   children,
@@ -117,6 +118,7 @@ export default async function DashboardLayout({
           <span className="font-extrabold text-sm text-white">CAREER TRANSFORMER</span>
         </Link>
         <div className="flex items-center gap-2">
+          <StudentNotificationDrawer />
           <Link href="/dashboard/live" className="px-2 py-1 rounded-lg bg-rose-500/20 border border-rose-500/30 text-rose-300 text-xs font-bold flex items-center gap-1">
             <Radio className="w-3 h-3 text-rose-400" />
             <span>Live</span>
@@ -127,6 +129,9 @@ export default async function DashboardLayout({
 
       {/* Main Content Viewport */}
       <main className="flex-1 p-4 sm:p-8 overflow-y-auto max-w-7xl mx-auto w-full relative">
+        <div className="hidden md:flex items-center justify-end mb-4 gap-3">
+          <StudentNotificationDrawer />
+        </div>
         <LiveCallNotificationBanner />
         {children}
       </main>

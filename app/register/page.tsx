@@ -9,6 +9,7 @@ import { GraduationCap, AlertCircle, ShieldCheck } from "lucide-react";
 import { TiltCard3D } from "@/components/3d/TiltCard3D";
 import { FadeIn } from "@/components/motion/MotionWrapper";
 import { DataMesh3DCanvas } from "@/components/3d/DataMesh3DCanvas";
+import { DEPARTMENT_OPTIONS } from "@/lib/departments";
 
 export default function RegisterPage() {
   const [formData, setFormData] = useState({
@@ -16,6 +17,7 @@ export default function RegisterPage() {
     email: "",
     phone: "",
     password: "",
+    department: "COMP_ENG",
     education: "B.Tech / B.E. (Engineering)",
     college: "",
     gradYear: "2024",
@@ -148,6 +150,19 @@ export default function RegisterPage() {
                     error={fieldErrors.password?.[0]}
                     required
                   />
+                </div>
+
+                {/* Department / Branch Selection */}
+                <div className="space-y-1.5">
+                  <Select
+                    label="Academic Department / Branch *"
+                    value={formData.department}
+                    onChange={(e) => setFormData({ ...formData, department: e.target.value })}
+                    options={DEPARTMENT_OPTIONS}
+                  />
+                  <p className="text-[11px] text-[#64748B]">
+                    Live mentor classes will be tailored and notified according to your department.
+                  </p>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

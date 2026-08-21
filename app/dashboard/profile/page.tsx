@@ -48,8 +48,8 @@ export default async function StudentProfilePage() {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <Input label="Academic Department / Branch" defaultValue={p?.department || "Computer Engineering"} readOnly />
           <Input label="Phone / WhatsApp" defaultValue={p?.phone || ""} readOnly />
-          <Input label="Current City" defaultValue={p?.city || ""} readOnly />
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

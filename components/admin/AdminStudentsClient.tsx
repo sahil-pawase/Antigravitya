@@ -15,6 +15,8 @@ export interface StudentRecord {
   profile?: {
     fullName: string;
     phone?: string | null;
+    department?: string | null;
+    departmentId?: string | null;
     education?: string | null;
     college?: string | null;
     city?: string | null;
@@ -58,6 +60,7 @@ export function AdminStudentsClient({ initialStudents }: { initialStudents: Stud
     (s) =>
       s.email.toLowerCase().includes(search.toLowerCase()) ||
       (s.profile?.fullName || "").toLowerCase().includes(search.toLowerCase()) ||
+      (s.profile?.department || "").toLowerCase().includes(search.toLowerCase()) ||
       (s.profile?.city || "").toLowerCase().includes(search.toLowerCase())
   );
 
@@ -67,7 +70,7 @@ export function AdminStudentsClient({ initialStudents }: { initialStudents: Stud
         <div>
           <h1 className="text-2xl font-bold text-white tracking-tight">Student Directory & Accounts</h1>
           <p className="text-xs text-[#94A3B8] mt-1">
-            View enrolled learners, inspect curriculum progress, and manage account access status.
+            View enrolled learners, inspect department-wise distribution, and manage account access status.
           </p>
         </div>
       </div>
@@ -77,7 +80,7 @@ export function AdminStudentsClient({ initialStudents }: { initialStudents: Stud
           <Search className="w-4 h-4 text-[#64748B] absolute left-3.5 top-1/2 -translate-y-1/2" />
           <input
             type="text"
-            placeholder="Search students by name, email, or city..."
+            placeholder="Search students by name, email, department, or city..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full pl-10 pr-4 py-2 rounded-lg bg-[#06101D] border border-[#162942] text-xs text-white placeholder-[#64748B] focus:border-[#397CFF] focus:outline-none"
@@ -90,7 +93,8 @@ export function AdminStudentsClient({ initialStudents }: { initialStudents: Stud
           <table className="w-full text-left text-xs">
             <thead className="bg-[#0C1A2B] text-[#64748B] uppercase font-bold text-[10px] tracking-wider border-b border-[#162942]">
               <tr>
-                <th className="p-4">Student Name & Email</th>
+                <th className="p-4">Student & Contact</th>
+                <th className="p-4">Academic Department</th>
                 <th className="p-4">Education & City</th>
                 <th className="p-4">Career Goal</th>
                 <th className="p-4">Progress</th>
@@ -112,6 +116,12 @@ export function AdminStudentsClient({ initialStudents }: { initialStudents: Stud
                     </span>
                   </td>
 
+                  <td className="p-4">
+                    <span className="px-2.5 py-1 rounded-full bg-[#0C1A2B] text-amber-300 border border-[#162942] text-[11px] font-bold inline-block">
+                      🎓 {s.profile?.department || "Computer Engineering"}
+                    </span>
+                  </td>
+
                   <td className="p-4 space-y-1">
                     <span className="text-white font-medium block">
                       {s.profile?.education || "Graduate"}
@@ -123,7 +133,7 @@ export function AdminStudentsClient({ initialStudents }: { initialStudents: Stud
 
                   <td className="p-4 max-w-xs">
                     <p className="text-[#94A3B8] text-[11px] line-clamp-2">
-                      {s.profile?.careerGoal || "Data Analyst Transition"}
+                      {s.profile?.careerGoal || "Data Analyst"}
                     </p>
                   </td>
 

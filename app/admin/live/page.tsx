@@ -38,6 +38,7 @@ import { Button } from "@/ui/Button";
 import { Input, Textarea } from "@/ui/Input";
 import { Modal } from "@/ui/Modal";
 import { ZoomLiveRoom } from "@/components/live/ZoomLiveRoom";
+import { TargetSelectionModal, TargetType } from "@/components/live/TargetSelectionModal";
 
 export default function AdminLiveStudioPage() {
   const [liveState, setLiveState] = useState<any>(null);
@@ -45,11 +46,19 @@ export default function AdminLiveStudioPage() {
   const [isUpdating, setIsUpdating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [hostDepartment, setHostDepartment] = useState<string>("Computer Engineering");
+  const [studentsNotified, setStudentsNotified] = useState<number>(0);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [targetLabel, setTargetLabel] = useState<string>("Computer Engineering");
+  const [sessionType, setSessionType] = useState<string>("LIVE_NOW");
+
+  // Target Selection Modal state
+  const [isTargetModalOpen, setIsTargetModalOpen] = useState(false);
 
   // Edit Stream Details State
   const [streamTitle, setStreamTitle] = useState("Mastering Real-Time SQL Queries & Window Functions");
   const [streamDesc, setStreamDesc] = useState("Live coding session on LEAD/LAG, ROW_NUMBER(), DENSE_RANK(), and partitioning high-volume e-commerce datasets.");
-  const [instructorName, setInstructorName] = useState("Sahil Pawase");
+  const [instructorName, setInstructorName] = useState("Rahul Verma");
   const [datasetName, setDatasetName] = useState("swiggy_orders_dataset.csv");
 
   // Create Poll State
@@ -69,13 +78,33 @@ export default function AdminLiveStudioPage() {
 
   const fetchLiveState = async () => {
     try {
+      // 1. Fetch department-aware active live session
+      const activeRes = await fetch("/api/live/active");
+      if (activeRes.ok) {
+        const activeData = await activeRes.json();
+        if (activeData.userDepartment) {
+          setHostDepartment(activeData.userDepartment);
+        }
+        if (activeData.studentsNotified !== undefined) {
+          setStudentsNotified(activeData.studentsNotified);
+        }
+        if (activeData.liveSession) {
+          setActiveSessionId(activeData.liveSession.id);
+          if (activeData.liveSession.hostName) setInstructorName(activeData.liveSession.hostName);
+          if (activeData.liveSession.department) setHostDepartment(activeData.liveSession.department);
+          if (activeData.liveSession.targetLabel) setTargetLabel(activeData.liveSession.targetLabel);
+          if (activeData.liveSession.sessionType) setSessionType(activeData.liveSession.sessionType);
+        }
+      }
+
+      // 2. Fetch WebRTC state
       const res = await fetch("/api/live-class");
       const data = await res.json();
       if (data.success && data.state) {
         setLiveState(data.state);
         setStreamTitle(data.state.title);
         setStreamDesc(data.state.description);
-        setInstructorName(data.state.instructor);
+        if (data.state.instructor) setInstructorName(data.state.instructor);
         setDatasetName(data.state.datasetName);
         setNoticeText(data.state.pinnedNotice || "");
       }
@@ -92,12 +121,108 @@ export default function AdminLiveStudioPage() {
     return () => clearInterval(interval);
   }, []);
 
+  const handleStartTargetedLive = async (payload: {
+    title: string;
+    description: string;
+    datasetName: string;
+    targetType: TargetType;
+    targetDepartmentIds: string[];
+    targetStudentIds: string[];
+    sessionType: "LIVE_NOW" | "INVITATION_REQUEST";
+  }) => {
+    setIsUpdating(true);
+    setError(null);
+    setSuccessMsg(null);
+
+    try {
+      // 1. Start live session with targeting
+      const startRes = await fetch("/api/live/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const startData = await startRes.json();
+      if (!startRes.ok) throw new Error(startData.error || "Failed to start live session");
+
+      setStudentsNotified(startData.studentsNotified || 0);
+      setHostDepartment(startData.department || hostDepartment);
+      setTargetLabel(startData.targetLabel || "Selected Target");
+      setSessionType(startData.sessionType || "LIVE_NOW");
+      setActiveSessionId(startData.liveSessionId);
+      setStreamTitle(startData.title);
+      setStreamDesc(payload.description);
+      setDatasetName(payload.datasetName);
+
+      // 2. Update WebRTC room state
+      await fetch("/api/live-class", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "START_STREAM",
+          title: startData.title,
+          description: payload.description,
+          datasetName: payload.datasetName,
+          instructor: startData.hostName,
+        }),
+      });
+
+      // 3. Broadcast across tabs
+      try {
+        const channel = new BroadcastChannel("career_transformer_zoom_room");
+        channel.postMessage({ type: "STREAM_STARTED", session: startData });
+        channel.close();
+      } catch (e) {}
+
+      setIsTargetModalOpen(false);
+      setSuccessMsg(
+        startData.sessionType === "INVITATION_REQUEST"
+          ? `📢 Live session invitation dispatched to ${startData.targetLabel}! ${startData.studentsNotified} students notified.`
+          : `🔴 Live stream is now LIVE for ${startData.targetLabel}! ${startData.studentsNotified} students notified in real-time.`
+      );
+      fetchLiveState();
+      setTimeout(() => setSuccessMsg(null), 4000);
+    } catch (err: any) {
+      setError(err.message || "Failed to start live session");
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
   const handleAction = async (action: string, extraData: any = {}) => {
     setIsUpdating(true);
     setError(null);
     setSuccessMsg(null);
 
     try {
+      if (action === "STOP_STREAM" || action === "END_AND_ARCHIVE") {
+        // 1. End live session in DB
+        await fetch("/api/live/end", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ liveSessionId: activeSessionId }),
+        });
+
+        // 2. Archive in WebRTC state
+        await fetch("/api/live-class", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "END_AND_ARCHIVE" }),
+        });
+
+        // 3. Broadcast across tabs
+        try {
+          const channel = new BroadcastChannel("career_transformer_zoom_room");
+          channel.postMessage({ type: "STREAM_UPDATED" });
+          channel.close();
+        } catch (e) {}
+
+        setSuccessMsg("🎉 Live stream ended and published to Recorded Classes catalog!");
+        fetchLiveState();
+        setTimeout(() => setSuccessMsg(null), 3500);
+        return;
+      }
+
       const res = await fetch("/api/live-class", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -126,9 +251,7 @@ export default function AdminLiveStudioPage() {
       } catch (e) {}
 
       setSuccessMsg(
-        action === "END_AND_ARCHIVE"
-          ? "🎉 Live stream ended and automatically published to Student Recorded Classes!"
-          : action === "TRIGGER_ATTENDANCE"
+        action === "TRIGGER_ATTENDANCE"
           ? "📋 Live Attendance Check is now active and sent to all student dashboards!"
           : action === "CLOSE_ATTENDANCE"
           ? "🔒 Live Attendance Check closed."
@@ -156,12 +279,7 @@ export default function AdminLiveStudioPage() {
     if (liveState?.isLive) {
       handleEndAndArchive();
     } else {
-      handleAction("START_STREAM", {
-        title: streamTitle,
-        description: streamDesc,
-        datasetName,
-        instructor: instructorName,
-      });
+      setIsTargetModalOpen(true);
     }
   };
 
@@ -292,21 +410,48 @@ export default function AdminLiveStudioPage() {
         onCloseAttendance={handleCloseAttendance}
       />
 
-      {/* Stream Action Banner */}
+      {/* Stream Action & Flexible Targeting Telemetry Banner */}
       <div className="p-4 px-6 rounded-2xl bg-[#081827] border border-[#162942] flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xl">
         <div className="flex items-center gap-3">
-          <div className="p-2.5 rounded-xl bg-rose-500/10 text-rose-400 border border-rose-500/20">
-            <Film className="w-5 h-5" />
+          <div className={`p-2.5 rounded-xl border ${liveState?.isLive ? "bg-rose-500/20 text-rose-400 border-rose-500/40 animate-pulse" : "bg-[#0C1A2B] text-[#41D8FF] border-[#162942]"}`}>
+            <Radio className="w-5 h-5" />
           </div>
           <div>
-            <h4 className="text-xs font-bold text-white">Automated Class Recording & Live Telemetry</h4>
+            <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+              <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider flex items-center gap-1 ${liveState?.isLive ? "bg-rose-500 text-white animate-pulse" : "bg-[#06101D] text-[#94A3B8] border border-[#162942]"}`}>
+                {liveState?.isLive ? (
+                  <>
+                    <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping" />
+                    {sessionType === "INVITATION_REQUEST" ? "📢 INVITATION ACTIVE" : "🔴 LIVE NOW"}
+                  </>
+                ) : (
+                  "⚪ STUDIO STANDBY"
+                )}
+              </span>
+
+              <span className="px-2.5 py-0.5 rounded-full bg-[#0C1A2B] text-amber-300 border border-[#162942] text-[10px] font-bold">
+                🎯 Target: {targetLabel}
+              </span>
+
+              <span className="px-2 py-0.5 rounded-full bg-[#0C1A2B] text-[#41D8FF] border border-[#162942] text-[10px] font-bold">
+                👤 Host: {instructorName}
+              </span>
+
+              {liveState?.isLive && (
+                <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-bold">
+                  🔔 Students Notified: {studentsNotified}
+                </span>
+              )}
+            </div>
             <p className="text-[11px] text-[#94A3B8]">
-              When you finish the class, this stream is instantly added to the Recorded Masterclasses catalog with live student attendance records.
+              {liveState?.isLive
+                ? `Broadcast active for ${targetLabel}. ${studentsNotified} students were sent live alerts.`
+                : `Click "GO LIVE" to select targets (Specific Department, Specific Students, Multiple Departments, or Everyone) and broadcast.`}
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-shrink-0">
           {liveState?.isLive ? (
             <button
               type="button"
@@ -315,17 +460,17 @@ export default function AdminLiveStudioPage() {
               className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-rose-600 to-red-700 hover:from-rose-500 hover:to-red-600 text-white font-extrabold text-xs flex items-center gap-2 shadow-lg shadow-rose-600/30 transition-all cursor-pointer"
             >
               <Square className="w-3.5 h-3.5 fill-white" />
-              <span>End Stream & Publish to Recorded 🎥</span>
+              <span>END LIVE & Publish 🎥</span>
             </button>
           ) : (
             <button
               type="button"
               onClick={handleToggleStream}
               disabled={isUpdating}
-              className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-[#06101D] font-extrabold text-xs flex items-center gap-2 shadow-lg transition-all cursor-pointer"
+              className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-rose-500 via-red-600 to-pink-600 hover:from-rose-400 hover:to-red-500 text-white font-extrabold text-xs flex items-center gap-2 shadow-lg shadow-rose-600/30 transition-all cursor-pointer hover:scale-105"
             >
-              <Play className="w-3.5 h-3.5 fill-current" />
-              <span>Start Live Broadcast 🔴</span>
+              <Play className="w-3.5 h-3.5 fill-white" />
+              <span>GO LIVE 🔴</span>
             </button>
           )}
         </div>
@@ -1024,6 +1169,18 @@ export default function AdminLiveStudioPage() {
           </form>
         </Modal>
       )}
+
+      {/* Modal: Flexible Target Selection for Live Broadcast / Request */}
+      <TargetSelectionModal
+        isOpen={isTargetModalOpen}
+        onClose={() => setIsTargetModalOpen(false)}
+        onSubmit={handleStartTargetedLive}
+        defaultTitle={streamTitle}
+        defaultDescription={streamDesc}
+        defaultDataset={datasetName}
+        hostDepartment={hostDepartment}
+        isSubmitting={isUpdating}
+      />
     </div>
   );
 }

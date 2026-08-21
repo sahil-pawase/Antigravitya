@@ -98,13 +98,16 @@ export default async function StudentDashboardPage() {
             <span className="px-2.5 py-0.5 rounded-full bg-[#397CFF]/15 text-[#41D8FF] border border-[#397CFF]/30 text-xs font-semibold">
               <Sparkles className="w-3 h-3 inline mr-1" /> Student Learning Portal
             </span>
+            <span className="px-2 py-0.5 rounded-full bg-[#0C1A2B] text-amber-300 border border-[#162942] text-[11px] font-bold">
+              🎓 {session.department || "Computer Engineering"}
+            </span>
             <span className="text-xs text-[#64748B] font-mono">ID: {session.id.substring(0, 8)}</span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
             Welcome back, {session.fullName}!
           </h1>
           <p className="text-xs sm:text-sm text-[#94A3B8]">
-            Track your analytics progress, join live classes, watch recorded masterclasses, and submit portfolio capstones.
+            Track your analytics progress, join live classes for {session.department || "your department"}, watch recorded masterclasses, and submit portfolio capstones.
           </p>
         </div>
 
@@ -123,7 +126,11 @@ export default async function StudentDashboardPage() {
       </div>
 
       {/* Live Attendance / Live Stream Alert Widget */}
-      <StudentLiveAttendanceCard currentUserId={session.id} currentUserName={session.fullName} />
+      <StudentLiveAttendanceCard
+        currentUserId={session.id}
+        currentUserName={session.fullName}
+        department={session.department || "Computer Engineering"}
+      />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
         <div className="p-5 rounded-2xl bg-[#081827] border border-[#162942] space-y-2 shadow-lg">

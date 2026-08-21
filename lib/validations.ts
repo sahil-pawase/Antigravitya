@@ -9,6 +9,7 @@ export const registerSchema = z.object({
     .min(8, "Password must be at least 8 characters")
     .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
     .regex(/[0-9]/, "Password must contain at least one number"),
+  department: z.string().min(1, "Please select your department / branch").default("Computer Engineering"),
   education: z.string().min(2, "Please select or specify your highest qualification"),
   college: z.string().optional(),
   gradYear: z.string().optional(),
@@ -68,6 +69,7 @@ export type AssignmentSubmissionInput = z.infer<typeof assignmentSubmissionSchem
 export const updateProfileSchema = z.object({
   fullName: z.string().min(2, "Full name must be at least 2 characters"),
   phone: z.string().optional(),
+  department: z.string().optional(),
   education: z.string().optional(),
   college: z.string().optional(),
   gradYear: z.string().optional(),

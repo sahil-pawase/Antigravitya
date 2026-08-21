@@ -13,6 +13,8 @@ export interface SessionUser {
   role: Role;
   fullName: string;
   avatarUrl?: string | null;
+  department?: string | null;
+  departmentId?: string | null;
 }
 
 export async function hashPassword(password: string): Promise<string> {
@@ -31,6 +33,8 @@ export function signToken(user: SessionUser): string {
       role: user.role,
       fullName: user.fullName,
       avatarUrl: user.avatarUrl,
+      department: user.department,
+      departmentId: user.departmentId,
     },
     JWT_SECRET,
     { expiresIn: "7d" }
@@ -69,6 +73,8 @@ export async function getSession(): Promise<SessionUser | null> {
       role: user.role,
       fullName: user.profile?.fullName || "Student",
       avatarUrl: user.profile?.avatarUrl,
+      department: user.profile?.department || "Computer Engineering",
+      departmentId: user.profile?.departmentId || "COMP_ENG",
     };
   } catch (error: unknown) {
     if (error && typeof error === "object" && "digest" in error && (error as { digest: string }).digest === "DYNAMIC_SERVER_USAGE") {
@@ -110,3 +116,12 @@ export async function requireAdmin(): Promise<SessionUser> {
   }
   return session;
 }
+
+export async function requireHost(): Promise<SessionUser> {
+  const session = await getSession();
+  if (!session || (session.role !== "ADMIN" && session.role !== "INSTRUCTOR")) {
+    throw new Error("FORBIDDEN");
+  }
+  return session;
+}
+

@@ -58,6 +58,7 @@ model User {
   passwordHash          String
   role                  Role                   @default(STUDENT)
   status                UserStatus             @default(ACTIVE)
+  notificationToken     String?
   createdAt             DateTime               @default(now())
   updatedAt             DateTime               @updatedAt
 
@@ -68,26 +69,30 @@ model User {
   projectSubmissions    ProjectSubmission[]
   assignmentSubmissions AssignmentSubmission[]
   certificates          Certificate[]
+  hostedLiveSessions    LiveSession[]          @relation("HostLiveSessions")
+  notifications         Notification[]         @relation("StudentNotifications")
 }
 
 model Profile {
-  id          String   @id @default(cuid())
-  userId      String   @unique
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  fullName    String
-  phone       String?
-  education   String?
-  college     String?
-  gradYear    String?
-  experience  String?
-  city        String?
-  careerGoal  String?
-  avatarUrl   String?
-  bio         String?
-  linkedinUrl String?
-  githubUrl   String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fullName     String
+  phone        String?
+  department   String?  @default("Computer Engineering")
+  departmentId String?  @default("COMP_ENG")
+  education    String?
+  college      String?
+  gradYear     String?
+  experience   String?
+  city         String?
+  careerGoal   String?
+  avatarUrl    String?
+  bio          String?
+  linkedinUrl  String?
+  githubUrl    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 }
 
 model Course {
@@ -338,3 +343,50 @@ model FAQ {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 }
+
+model LiveSession {
+  id                  String         @id @default(cuid())
+  hostId              String
+  host                User           @relation("HostLiveSessions", fields: [hostId], references: [id], onDelete: Cascade)
+  hostName            String
+  department          String         // Host's primary department, e.g. "Computer Engineering"
+  departmentId        String         // Host's primary departmentId, e.g. "COMP_ENG"
+  title               String
+  description         String?
+  targetType          String         @default("DEPARTMENT") // "DEPARTMENT", "STUDENTS", "DEPARTMENTS", "ALL"
+  targetDepartmentIds String[]       @default([])
+  targetStudentIds    String[]       @default([])
+  targetLabel         String?        // e.g. "Computer Engineering", "Computer Engineering + IT", "2 Selected Students", "Everyone"
+  sessionType         String         @default("LIVE_NOW") // "LIVE_NOW", "INVITATION_REQUEST"
+  category            String?        @default("Masterclass")
+  status              String         @default("LIVE") // LIVE, ENDED
+  startedAt           DateTime       @default(now())
+  endedAt             DateTime?
+  viewers             Int            @default(0)
+  datasetName         String?
+  datasetUrl          String?
+  notifications       Notification[]
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+}
+
+model Notification {
+  id            String       @id @default(cuid())
+  studentId     String
+  student       User         @relation("StudentNotifications", fields: [studentId], references: [id], onDelete: Cascade)
+  liveSessionId String?
+  liveSession   LiveSession? @relation(fields: [liveSessionId], references: [id], onDelete: Cascade)
+  department    String?      // e.g. "Computer Engineering"
+  departmentId  String?      // e.g. "COMP_ENG"
+  type          String       @default("LIVE_SESSION_CALL") // LIVE_SESSION_CALL, LIVE_SESSION_INVITATION, ATTENDANCE_CHECK, PING
+  title         String
+  message       String
+  actionUrl     String?      @default("/dashboard/live")
+  read          Boolean      @default(false)
+  dismissed     Boolean      @default(false)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@unique([studentId, liveSessionId])
+}
+

@@ -7,6 +7,8 @@ async function main() {
   console.log("🌱 Starting database seed...");
 
   // Clean existing records in reverse dependency order
+  await prisma.notification.deleteMany();
+  await prisma.liveSession.deleteMany();
   await prisma.certificate.deleteMany();
   await prisma.projectSubmission.deleteMany();
   await prisma.assignmentSubmission.deleteMany();
@@ -25,11 +27,13 @@ async function main() {
   await prisma.testimonial.deleteMany();
   await prisma.fAQ.deleteMany();
 
-  // 1. Create Default Users (Admin, Instructor, Student)
+  // 1. Create Default Users (Admin, Instructors for CS & IT, Students across Departments)
   const passwordHashAdmin = await bcrypt.hash("AdminPassword123!", 10);
+  const passwordHashSahilAdmin = await bcrypt.hash("Sahil@2004", 10);
   const passwordHashInstructor = await bcrypt.hash("InstructorPassword123!", 10);
   const passwordHashStudent = await bcrypt.hash("StudentPassword123!", 10);
 
+  // Admin 1
   const admin = await prisma.user.create({
     data: {
       email: "admin@careertransformer.in",
@@ -40,6 +44,8 @@ async function main() {
         create: {
           fullName: "Aditi Sharma",
           phone: "+91 98765 43210",
+          department: "Computer Engineering",
+          departmentId: "COMP_ENG",
           education: "B.Tech Computer Science & MBA",
           city: "Bengaluru",
           careerGoal: "Platform Leadership & Student Career Success",
@@ -49,6 +55,29 @@ async function main() {
     },
   });
 
+  // Admin 2 (Sahil Pawase)
+  const sahilAdmin = await prisma.user.create({
+    data: {
+      email: "pawasesahil2004@gmail.com",
+      passwordHash: passwordHashSahilAdmin,
+      role: "ADMIN",
+      status: "ACTIVE",
+      profile: {
+        create: {
+          fullName: "Sahil Pawase",
+          phone: "+91 96999 82137",
+          department: "Computer Engineering",
+          departmentId: "COMP_ENG",
+          education: "B.E. Computer Engineering",
+          city: "Pune",
+          careerGoal: "Platform Super Admin & Data Analytics Lead",
+          bio: "Super Admin & Creator of Career Transformer Platform.",
+        },
+      },
+    },
+  });
+
+  // Host 1: Rahul (Computer Engineering)
   const instructor = await prisma.user.create({
     data: {
       email: "instructor@careertransformer.in",
@@ -57,17 +86,139 @@ async function main() {
       status: "ACTIVE",
       profile: {
         create: {
-          fullName: "Rohan Verma",
+          fullName: "Rahul Verma",
           phone: "+91 98111 22334",
+          department: "Computer Engineering",
+          departmentId: "COMP_ENG",
           education: "M.S. in Data Analytics",
           city: "Hyderabad",
           careerGoal: "Mentoring Next-Gen Data Analysts",
-          bio: "Lead Analytics Mentor with 8+ years hands-on experience solving enterprise data problems using SQL, Python, and Power BI.",
+          bio: "Lead Analytics Mentor with 8+ years hands-on experience in SQL, Python, and Power BI.",
         },
       },
     },
   });
 
+  // Host 2: Pooja (Information Technology)
+  const instructorIT = await prisma.user.create({
+    data: {
+      email: "pooja.it@careertransformer.in",
+      passwordHash: passwordHashInstructor,
+      role: "INSTRUCTOR",
+      status: "ACTIVE",
+      profile: {
+        create: {
+          fullName: "Pooja Iyer",
+          phone: "+91 98333 44556",
+          department: "Information Technology",
+          departmentId: "IT",
+          education: "M.Tech in Information Technology",
+          city: "Bengaluru",
+          careerGoal: "Cloud Architecture & Fullstack Engineering",
+          bio: "Senior IT Architect and Cloud Instructor.",
+        },
+      },
+    },
+  });
+
+  // Student 1: Sahil (Computer Engineering) -> Should receive CS notifications
+  const studentSahil = await prisma.user.create({
+    data: {
+      email: "pawasesahil2@gmail.com",
+      passwordHash: passwordHashStudent,
+      role: "STUDENT",
+      status: "ACTIVE",
+      profile: {
+        create: {
+          fullName: "Sahil Pawase",
+          phone: "+91 96999 82137",
+          department: "Computer Engineering",
+          departmentId: "COMP_ENG",
+          education: "B.E. Computer Engineering",
+          college: "Pune University",
+          gradYear: "2024",
+          experience: "Fresher / Looking for 1st Job",
+          city: "Pune",
+          careerGoal: "Full-Time Data Analytics Engineer",
+          bio: "Enthusiastic CS student mastering SQL and Power BI.",
+        },
+      },
+    },
+  });
+
+  // Student 2: Amit (Computer Engineering) -> Should receive CS notifications
+  const studentAmit = await prisma.user.create({
+    data: {
+      email: "amit.cs@careertransformer.in",
+      passwordHash: passwordHashStudent,
+      role: "STUDENT",
+      status: "ACTIVE",
+      profile: {
+        create: {
+          fullName: "Amit Kumar",
+          phone: "+91 98444 55667",
+          department: "Computer Engineering",
+          departmentId: "COMP_ENG",
+          education: "B.Tech Computer Science",
+          college: "IIT / NIT",
+          gradYear: "2024",
+          experience: "Fresher / Looking for 1st Job",
+          city: "Delhi NCR",
+          careerGoal: "Data Analyst & Database Developer",
+        },
+      },
+    },
+  });
+
+  // Student 3: Priya (Mechanical Engineering) -> Must NOT receive CS or IT notifications
+  const studentPriya = await prisma.user.create({
+    data: {
+      email: "priya.mech@careertransformer.in",
+      passwordHash: passwordHashStudent,
+      role: "STUDENT",
+      status: "ACTIVE",
+      profile: {
+        create: {
+          fullName: "Priya Sharma",
+          phone: "+91 98555 66778",
+          department: "Mechanical Engineering",
+          departmentId: "MECH_ENG",
+          education: "B.E. Mechanical Engineering",
+          college: "Mumbai University",
+          gradYear: "2023",
+          experience: "1-2 Years (Junior / Switching)",
+          city: "Mumbai",
+          careerGoal: "Transitioning from Mechanical CAD to Business Analytics",
+        },
+      },
+    },
+  });
+
+  // Student 4: Rohit (Information Technology) -> Should receive IT notifications, but NOT CS notifications
+  const studentRohit = await prisma.user.create({
+    data: {
+      email: "rohit.it@careertransformer.in",
+      passwordHash: passwordHashStudent,
+      role: "STUDENT",
+      status: "ACTIVE",
+      profile: {
+        create: {
+          fullName: "Rohit Singh",
+          phone: "+91 98666 77889",
+          department: "Information Technology",
+          departmentId: "IT",
+          education: "B.Tech Information Technology",
+          college: "Anna University",
+          gradYear: "2024",
+          experience: "Fresher / Looking for 1st Job",
+          city: "Chennai",
+          careerGoal: "Fullstack BI & Cloud Analytics",
+        },
+      },
+    },
+  });
+
+  // Student 5: Default student (Aarav Patel - Computer Engineering)
   const student = await prisma.user.create({
     data: {
       email: "student@careertransformer.in",
@@ -78,7 +229,9 @@ async function main() {
         create: {
           fullName: "Aarav Patel",
           phone: "+91 98222 33445",
-          education: "B.Com / B.E. Graduate",
+          department: "Computer Engineering",
+          departmentId: "COMP_ENG",
+          education: "B.Tech Computer Science",
           college: "Delhi University",
           gradYear: "2024",
           experience: "0-1 Years (Fresher / Switcher)",
@@ -90,7 +243,7 @@ async function main() {
     },
   });
 
-  console.log("✅ Users created: Admin, Instructor, Student");
+  console.log("✅ Users created across departments (CS, IT, MECH)");
 
   // 2. Create Flagship Course: Data Analytics Career Program
   const course = await prisma.course.create({
